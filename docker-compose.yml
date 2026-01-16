@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    container_name: carhop_db
+    environment:
+      POSTGRES_USER: carhop
+      POSTGRES_PASSWORD: carhop
+      POSTGRES_DB: carhop
+    ports:
+      - "5432:5432"
+    volumes:
+      - carhop_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carhop -d carhop"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    container_name: carhop_api
+    environment:
+      DATABASE_URL: postgresql+psycopg://carhop:carhop@db:5432/carhop
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  carhop_db_data:
