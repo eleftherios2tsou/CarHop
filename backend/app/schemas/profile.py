@@ -1,0 +1,18 @@
+from pydantic import BaseModel
+from datetime import date
+
+
+class ProfileOut(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    date_of_birth: date
+    email_verified: bool
+    is_active: bool
+
+    has_license: bool
+    license_verified: bool
+    profile_complete: bool
+
+    class Config:
+        from_attributes = True
