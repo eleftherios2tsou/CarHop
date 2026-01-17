@@ -9,7 +9,7 @@ class BookingRequest(Base):
     car_id: Mapped[int] = mapped_column(ForeignKey("cars.id"))
     renter_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
-    status: Mapped[str] = mapped_column(String, default="PENDING")  # PENDING | APPROVED | REJECTED
+    status: Mapped[str] = mapped_column(String, default="PENDING")  
 
     __table_args__ = (
         UniqueConstraint("car_id", "renter_id", name="uq_car_renter"),
