@@ -7,6 +7,7 @@ class RideCreate(BaseModel):
 
 class RideOut(BaseModel):
     id: int
+    driver_id: int
     origin: str
     destination: str
     seats_available: int
