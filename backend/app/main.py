@@ -1,19 +1,12 @@
 from fastapi import FastAPI
-from app.database import engine, Base
-from app.routers.request import router as requests_router
-from app.models import user, ride  # noqa: F401
-from app.routers.rides import router as rides_router
-from app.routers.auth import router as auth_router
+from app.routers import auth, cars, bookings
 
 app = FastAPI(title="CarHop API", version="0.4.0")
 
-@app.on_event("startup")
-def on_startup():
-    Base.metadata.create_all(bind=engine)
 
-app.include_router(auth_router)
-app.include_router(rides_router)
-app.include_router(requests_router)
+app.include_router(auth.router)
+app.include_router(cars.router)
+app.include_router(bookings.router)
 
 @app.get("/health")
 def health():

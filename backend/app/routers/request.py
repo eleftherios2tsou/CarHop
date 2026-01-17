@@ -41,7 +41,6 @@ def accept_request(
     if ride.status != "OPEN" or ride.seats_available <= 0:
         raise HTTPException(status_code=400, detail="Ride is full")
 
-    # Accept + decrement seats
     req.status = "ACCEPTED"
     ride.seats_available -= 1
     if ride.seats_available == 0:
@@ -72,3 +71,16 @@ def reject_request(
     db.commit()
     db.refresh(req)
     return req
+@router.get("/incoming", response_model=list[RequestOut])
+def incoming_requests(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return (
+        db.query(RideRequest)
+        .join(Ride, Ride.id == RideRequest.ride_id)
+        .filter(Ride.driver_id == current_user.id)
+        .order_by(RideRequest.id.desc())
+        .all()
+    )
+
