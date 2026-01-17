@@ -10,3 +10,4 @@ class Ride(Base):
     origin: Mapped[str] = mapped_column(String)
     destination: Mapped[str] = mapped_column(String)
     seats_available: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String, default="OPEN")  
