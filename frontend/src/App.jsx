@@ -184,7 +184,7 @@ export default function App() {
   async function refreshCars() {
     setBusy((b) => ({ ...b, cars: true }));
     try {
-      const data = await apiFetch("/cars");
+      const data = await apiFetch("/cars/");
       setCars(Array.isArray(data) ? data : []);
     } finally {
       setBusy((b) => ({ ...b, cars: false }));
@@ -430,16 +430,47 @@ export default function App() {
     };
   }, [profile, isAuthed]);
 
-  const navItems = [
-    { key: "Marketplace", label: "Marketplace" },
-    { key: "Auth", label: "Auth" },
-    { key: "Verify Email", label: "Verify Email" },
-    { key: "Profile", label: "Profile" },
-    { key: "License", label: "Driver License" },
-    { key: "List Car", label: "List Car" },
-    { key: "Incoming", label: "Incoming Bookings" },
-    ...(isAdmin ? [{ key: "Admin", label: "Admin" }] : []),
-  ];
+  const navItems = useMemo(() => {
+    // Always visible
+    const items = [{ key: "Marketplace", label: "Marketplace" }];
+
+    // Logged out: only Auth
+    if (!isAuthed) {
+      items.push({ key: "Auth", label: "Auth" });
+      return items;
+    }
+
+    // Logged in: core pages
+    items.push({ key: "Profile", label: "Profile" });
+
+    // If email not verified, show Verify tab (and keep Auth hidden)
+    if (!profile?.email_verified) {
+      items.push({ key: "Verify Email", label: "Verify Email" });
+    }
+
+    // License is always relevant after login (even if email isn't verified yet, depends on your backend rules)
+    items.push({ key: "License", label: "Driver License" });
+
+    // Only show listing + incoming once email is verified (matches your gating story)
+    if (profile?.email_verified) {
+      items.push({ key: "List Car", label: "List Car" });
+      items.push({ key: "Incoming", label: "Incoming Bookings" });
+    }
+
+    // Admin extra
+    if (isAdmin) {
+      items.push({ key: "Admin", label: "Admin" });
+    }
+
+    return items;
+  }, [isAuthed, profile?.email_verified, isAdmin]);
+
+  useEffect(() => {
+    const allowed = new Set(navItems.map((n) => n.key));
+    if (!allowed.has(active)) {
+      setActive(navItems[0]?.key || "Marketplace");
+    }
+  }, [navItems, active]);
 
   /* -----------------------------
      Render
