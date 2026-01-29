@@ -18,8 +18,9 @@ function clearToken() {
 
 /* -----------------------------
    Fetch helper
+   - Adds onAuthError() hook for 401/403 so stale tokens are auto-cleared
 ------------------------------ */
-async function apiFetch(path, { token, ...opts } = {}) {
+async function apiFetch(path, { token, onAuthError, ...opts } = {}) {
   const headers = {
     ...(opts.headers || {}),
     ...(opts.body ? { "Content-Type": "application/json" } : {}),
@@ -34,6 +35,17 @@ async function apiFetch(path, { token, ...opts } = {}) {
     data = text ? JSON.parse(text) : null;
   } catch {
     data = text;
+  }
+
+  // 🔒 auto-handle invalid/expired tokens
+  if (res.status === 401 || res.status === 403) {
+    if (onAuthError) onAuthError();
+    const msg =
+      (data &&
+        data.detail &&
+        (Array.isArray(data.detail) ? JSON.stringify(data.detail) : data.detail)) ||
+      `Unauthorized (${res.status})`;
+    throw new Error(msg);
   }
 
   if (!res.ok) {
@@ -178,6 +190,16 @@ export default function App() {
     setToast({ msg, tone });
   }
 
+  // ✅ shared auth error handler (clears stale token and routes user)
+  const onAuthError = () => {
+    clearToken();
+    setTokenState("");
+    setProfile(null);
+    setIncoming([]);
+    notify("Session expired. Please login again.", "warn");
+    setActive("Auth");
+  };
+
   /* -----------------------------
      Data refresh
   ------------------------------ */
@@ -198,7 +220,7 @@ export default function App() {
     }
     setBusy((b) => ({ ...b, profile: true }));
     try {
-      const data = await apiFetch("/profile/me", { token });
+      const data = await apiFetch("/profile/me", { token, onAuthError });
       setProfile(data);
     } finally {
       setBusy((b) => ({ ...b, profile: false }));
@@ -212,7 +234,7 @@ export default function App() {
     }
     setBusy((b) => ({ ...b, incoming: true }));
     try {
-      const data = await apiFetch("/bookings/incoming", { token });
+      const data = await apiFetch("/bookings/incoming", { token, onAuthError });
       setIncoming(Array.isArray(data) ? data : []);
     } finally {
       setBusy((b) => ({ ...b, incoming: false }));
@@ -317,6 +339,7 @@ export default function App() {
       await apiFetch("/profile/license", {
         method: "POST",
         token,
+        onAuthError,
         body: JSON.stringify({
           license_number: licenseNumber,
           issuing_country: issuingCountry,
@@ -337,7 +360,7 @@ export default function App() {
     setBusy((b) => ({ ...b, admin: true }));
     try {
       const userId = Number(adminVerifyUserId);
-      await apiFetch(`/profile/license/${userId}/verify`, { method: "POST", token });
+      await apiFetch(`/profile/license/${userId}/verify`, { method: "POST", token, onAuthError });
       notify(`Admin: verified license for user ${userId} ✅`, "ok");
       await refreshProfile();
     } catch (err) {
@@ -354,6 +377,7 @@ export default function App() {
       await apiFetch("/cars", {
         method: "POST",
         token,
+        onAuthError,
         body: JSON.stringify({
           make,
           model,
@@ -375,7 +399,7 @@ export default function App() {
   async function requestBooking(carId) {
     setBusy((b) => ({ ...b, booking: carId }));
     try {
-      const data = await apiFetch(`/bookings/${carId}`, { method: "POST", token });
+      const data = await apiFetch(`/bookings/${carId}`, { method: "POST", token, onAuthError });
       notify(`Booking requested ✅ (booking_id: ${data.id})`, "ok");
       await refreshIncoming();
       setActive("Incoming");
@@ -389,7 +413,7 @@ export default function App() {
   async function approveBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/approve`, { method: "POST", token });
+      const data = await apiFetch(`/bookings/${bookingId}/approve`, { method: "POST", token, onAuthError });
       notify(`Approved booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -403,7 +427,7 @@ export default function App() {
   async function rejectBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/reject`, { method: "POST", token });
+      const data = await apiFetch(`/bookings/${bookingId}/reject`, { method: "POST", token, onAuthError });
       notify(`Rejected booking ✅ (${data.id})`, "ok");
       await refreshIncoming();
     } catch (err) {
@@ -448,10 +472,10 @@ export default function App() {
       items.push({ key: "Verify Email", label: "Verify Email" });
     }
 
-    // License is always relevant after login (even if email isn't verified yet, depends on your backend rules)
+    // License is always relevant after login
     items.push({ key: "License", label: "Driver License" });
 
-    // Only show listing + incoming once email is verified (matches your gating story)
+    // Only show listing + incoming once email is verified
     if (profile?.email_verified) {
       items.push({ key: "List Car", label: "List Car" });
       items.push({ key: "Incoming", label: "Incoming Bookings" });
@@ -477,11 +501,7 @@ export default function App() {
   ------------------------------ */
   return (
     <div className="appShell">
-      <Toast
-        tone={toast.tone}
-        message={toast.msg}
-        onClose={() => setToast({ tone: "info", msg: "" })}
-      />
+      <Toast tone={toast.tone} message={toast.msg} onClose={() => setToast({ tone: "info", msg: "" })} />
 
       <aside className="sidebar">
         <div className="brand">
@@ -546,13 +566,15 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1 className="pageTitle">{active}</h1>
-            <p className="pageSub">
-              The new Era of commuting
-            </p>
+            <p className="pageSub">The new Era of commuting</p>
           </div>
 
           <div className="topbarRight">
-            <Button variant="secondary" onClick={() => refreshCars().catch((e) => notify(e.message, "bad"))} loading={busy.cars}>
+            <Button
+              variant="secondary"
+              onClick={() => refreshCars().catch((e) => notify(e.message, "bad"))}
+              loading={busy.cars}
+            >
               Refresh Cars
             </Button>
             <Button
@@ -581,9 +603,7 @@ export default function App() {
             subtitle="Browse cars. Booking requires email + licence verification."
             right={
               <div className="gates">
-                <Badge tone={gates.canBook ? "ok" : "warn"}>
-                  {gates.canBook ? "Can book" : "Booking locked"}
-                </Badge>
+                <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
               </div>
             }
           >
@@ -614,9 +634,7 @@ export default function App() {
                         Request Booking
                       </Button>
                       {!gates.canBook ? (
-                        <div className="tiny muted">
-                          Unlock: verify email + admin-verified licence.
-                        </div>
+                        <div className="tiny muted">Unlock: verify email + admin-verified licence.</div>
                       ) : null}
                     </div>
                   </div>
@@ -660,12 +678,7 @@ export default function App() {
                 {authMode === "register" ? (
                   <>
                     <Field label="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                    <Field
-                      label="Date of birth"
-                      value={dob}
-                      onChange={(e) => setDob(e.target.value)}
-                      placeholder="YYYY-MM-DD"
-                    />
+                    <Field label="Date of birth" value={dob} onChange={(e) => setDob(e.target.value)} placeholder="YYYY-MM-DD" />
                   </>
                 ) : null}
 
@@ -681,10 +694,7 @@ export default function App() {
               </div>
             </Card>
 
-            <Card
-              title="Email Verification"
-              subtitle="MVP mode: register returns a verification token (simulated email)."
-            >
+            <Card title="Email Verification" subtitle="MVP mode: register returns a verification token (simulated email).">
               <div className="form">
                 <Field
                   label="Verification token"
@@ -734,12 +744,8 @@ export default function App() {
             subtitle="Shows your onboarding status and platform gates."
             right={
               <div className="gates">
-                <Badge tone={gates.canListCars ? "ok" : "warn"}>
-                  {gates.canListCars ? "Can list cars" : "Listing locked"}
-                </Badge>
-                <Badge tone={gates.canBook ? "ok" : "warn"}>
-                  {gates.canBook ? "Can book" : "Booking locked"}
-                </Badge>
+                <Badge tone={gates.canListCars ? "ok" : "warn"}>{gates.canListCars ? "Can list cars" : "Listing locked"}</Badge>
+                <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
               </div>
             }
           >
@@ -883,9 +889,7 @@ export default function App() {
                 Publish Listing
               </Button>
 
-              {!gates.canListCars ? (
-                <div className="tiny muted">Unlock: login + verify email.</div>
-              ) : null}
+              {!gates.canListCars ? <div className="tiny muted">Unlock: login + verify email.</div> : null}
             </form>
           </Card>
         )}
