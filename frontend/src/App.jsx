@@ -166,6 +166,11 @@ export default function App() {
 
   // bookings
   const [incoming, setIncoming] = useState([]);
+  const [mine, setMine] = useState([]);
+
+  // booking dates (minimal realism)
+  const [startDate, setStartDate] = useState("2026-02-01");
+  const [endDate, setEndDate] = useState("2026-02-03");
 
   // UI
   const [active, setActive] = useState("Marketplace"); // nav
@@ -179,8 +184,10 @@ export default function App() {
     car: false,
     cars: false,
     incoming: false,
+    mine: false,
     booking: null, // carId
     decision: null, // bookingId
+    cancel: null, // bookingId
   });
 
   const isAuthed = useMemo(() => !!token, [token]);
@@ -196,6 +203,7 @@ export default function App() {
     setTokenState("");
     setProfile(null);
     setIncoming([]);
+    setMine([]);
     notify("Session expired. Please login again.", "warn");
     setActive("Auth");
   };
@@ -241,6 +249,20 @@ export default function App() {
     }
   }
 
+  async function refreshMine() {
+    if (!token) {
+      setMine([]);
+      return;
+    }
+    setBusy((b) => ({ ...b, mine: true }));
+    try {
+      const data = await apiFetch("/bookings/mine", { token, onAuthError });
+      setMine(Array.isArray(data) ? data : []);
+    } finally {
+      setBusy((b) => ({ ...b, mine: false }));
+    }
+  }
+
   useEffect(() => {
     refreshCars().catch(() => {});
   }, []);
@@ -249,6 +271,7 @@ export default function App() {
     if (!token) return;
     refreshProfile().catch(() => {});
     refreshIncoming().catch(() => {});
+    refreshMine().catch(() => {});
   }, [token]);
 
   /* -----------------------------
@@ -315,6 +338,7 @@ export default function App() {
       notify("Logged in ✅", "ok");
       await refreshProfile();
       await refreshIncoming();
+      await refreshMine();
       setActive("Profile");
     } catch (err) {
       notify(`Login error: ${err.message}`, "bad");
@@ -328,6 +352,7 @@ export default function App() {
     setTokenState("");
     setProfile(null);
     setIncoming([]);
+    setMine([]);
     notify("Logged out.", "info");
     setActive("Marketplace");
   }
@@ -396,13 +421,27 @@ export default function App() {
     }
   }
 
+  function isValidDateRange(s, e) {
+    if (!s || !e) return false;
+    const sd = new Date(s);
+    const ed = new Date(e);
+    if (Number.isNaN(sd.getTime()) || Number.isNaN(ed.getTime())) return false;
+    return ed >= sd;
+  }
+
   async function requestBooking(carId) {
     setBusy((b) => ({ ...b, booking: carId }));
     try {
-      const data = await apiFetch(`/bookings/${carId}`, { method: "POST", token, onAuthError });
+      const data = await apiFetch(`/bookings/${carId}`, {
+        method: "POST",
+        token,
+        onAuthError,
+        body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+      });
       notify(`Booking requested ✅ (booking_id: ${data.id})`, "ok");
       await refreshIncoming();
-      setActive("Incoming");
+      await refreshMine();
+      setActive("My Bookings");
     } catch (err) {
       notify(`Booking error: ${err.message}`, "bad");
     } finally {
@@ -434,6 +473,24 @@ export default function App() {
       notify(`Reject error: ${err.message}`, "bad");
     } finally {
       setBusy((b) => ({ ...b, decision: null }));
+    }
+  }
+
+  async function cancelBooking(bookingId) {
+    setBusy((b) => ({ ...b, cancel: bookingId }));
+    try {
+      await apiFetch(`/bookings/${bookingId}/cancel`, {
+        method: "POST",
+        token,
+        onAuthError,
+        body: JSON.stringify({ reason: "User cancelled" }),
+      });
+      notify("Cancelled booking ✅", "ok");
+      await refreshMine();
+    } catch (err) {
+      notify(`Cancel error: ${err.message}`, "bad");
+    } finally {
+      setBusy((b) => ({ ...b, cancel: null }));
     }
   }
 
@@ -474,6 +531,9 @@ export default function App() {
 
     // License is always relevant after login
     items.push({ key: "License", label: "Driver License" });
+
+    // Renter bookings (useful after login)
+    items.push({ key: "My Bookings", label: "My Bookings" });
 
     // Only show listing + incoming once email is verified
     if (profile?.email_verified) {
@@ -517,14 +577,24 @@ export default function App() {
             <span>Auth</span>
             {isAuthed ? <Badge tone="ok">Token</Badge> : <Badge tone="bad">No token</Badge>}
           </div>
+
           <div className="statusRow">
             <span>Email</span>
             {profile?.email_verified ? <Badge tone="ok">Verified</Badge> : <Badge tone="warn">Pending</Badge>}
           </div>
+
+          {/* ✅ 3-state licence badge */}
           <div className="statusRow">
             <span>Licence</span>
-            {profile?.license_verified ? <Badge tone="ok">Verified</Badge> : <Badge tone="warn">Pending</Badge>}
+            {!profile?.has_license ? (
+              <Badge tone="bad">Not submitted</Badge>
+            ) : profile?.license_verified ? (
+              <Badge tone="ok">Verified</Badge>
+            ) : (
+              <Badge tone="warn">Pending</Badge>
+            )}
           </div>
+
           {isAdmin ? (
             <div className="statusRow">
               <span>Role</span>
@@ -587,6 +657,14 @@ export default function App() {
             </Button>
             <Button
               variant="secondary"
+              onClick={() => refreshMine().catch((e) => notify(e.message, "bad"))}
+              disabled={!isAuthed}
+              loading={busy.mine}
+            >
+              Refresh My Bookings
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => refreshIncoming().catch((e) => notify(e.message, "bad"))}
               disabled={!isAuthed}
               loading={busy.incoming}
@@ -611,34 +689,68 @@ export default function App() {
               <p className="muted">No cars listed yet.</p>
             ) : (
               <div className="grid">
-                {cars.map((c) => (
-                  <div className="tile" key={c.id}>
-                    <div className="tileTop">
-                      <div className="tileTitle">
-                        #{c.id} · {c.make} {c.model}
-                      </div>
-                      <Badge tone={c.status === "AVAILABLE" ? "ok" : "warn"}>{c.status}</Badge>
-                    </div>
-                    <div className="tileMeta">
-                      <div className="mono">{c.year}</div>
-                      <div className="mono">£{c.daily_price}/day</div>
-                      <div className="mono">owner #{c.owner_id}</div>
-                    </div>
+                {cars.map((c) => {
+                  const datesOk = isValidDateRange(startDate, endDate);
+                  const canRequest = gates.canBook && datesOk;
 
-                    <div className="tileActions">
-                      <Button
-                        onClick={() => requestBooking(c.id)}
-                        disabled={!gates.canBook}
-                        loading={busy.booking === c.id}
-                      >
-                        Request Booking
-                      </Button>
-                      {!gates.canBook ? (
-                        <div className="tiny muted">Unlock: verify email + admin-verified licence.</div>
+                  return (
+                    <div className="tile" key={c.id}>
+                      <div className="tileTop">
+                        <div className="tileTitle">
+                          #{c.id} · {c.make} {c.model}
+                        </div>
+                        <Badge tone={c.status === "AVAILABLE" ? "ok" : "warn"}>{c.status}</Badge>
+                      </div>
+
+                      <div className="tileMeta">
+                        <div className="mono">{c.year}</div>
+                        <div className="mono">£{c.daily_price}/day</div>
+                        <div className="mono">owner #{c.owner_id}</div>
+                      </div>
+
+                      {/* ✅ Minimal realism: date range inputs */}
+                      {gates.canBook ? (
+                        <div className="row">
+                          <label className="field" style={{ flex: 1 }}>
+                            <span className="fieldLabel">Start date</span>
+                            <input
+                              className="input"
+                              type="date"
+                              value={startDate}
+                              onChange={(e) => setStartDate(e.target.value)}
+                            />
+                          </label>
+
+                          <label className="field" style={{ flex: 1 }}>
+                            <span className="fieldLabel">End date</span>
+                            <input
+                              className="input"
+                              type="date"
+                              value={endDate}
+                              onChange={(e) => setEndDate(e.target.value)}
+                            />
+                          </label>
+                        </div>
                       ) : null}
+
+                      <div className="tileActions">
+                        <Button
+                          onClick={() => requestBooking(c.id)}
+                          disabled={!canRequest}
+                          loading={busy.booking === c.id}
+                        >
+                          Request Booking
+                        </Button>
+
+                        {!gates.canBook ? (
+                          <div className="tiny muted">Unlock: verify email + admin-verified licence.</div>
+                        ) : !datesOk ? (
+                          <div className="tiny muted">End date must be on/after start date.</div>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -666,7 +778,12 @@ export default function App() {
               </div>
 
               <form className="form" onSubmit={handleAuth}>
-                <Field label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@carhop.com" />
+                <Field
+                  label="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@carhop.com"
+                />
                 <Field
                   label="Password"
                   type="password"
@@ -678,7 +795,12 @@ export default function App() {
                 {authMode === "register" ? (
                   <>
                     <Field label="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                    <Field label="Date of birth" value={dob} onChange={(e) => setDob(e.target.value)} placeholder="YYYY-MM-DD" />
+                    <Field
+                      label="Date of birth"
+                      value={dob}
+                      onChange={(e) => setDob(e.target.value)}
+                      placeholder="YYYY-MM-DD"
+                    />
                   </>
                 ) : null}
 
@@ -706,7 +828,12 @@ export default function App() {
                   <Button onClick={handleVerifyEmail} loading={busy.verify} disabled={!verificationToken}>
                     Verify Email
                   </Button>
-                  <Button variant="secondary" onClick={handleLoginAfterVerify} loading={busy.auth}>
+                  <Button
+                    variant="secondary"
+                    onClick={handleLoginAfterVerify}
+                    loading={busy.auth}
+                    disabled={!verificationToken}
+                  >
                     Login after verify
                   </Button>
                 </div>
@@ -744,7 +871,9 @@ export default function App() {
             subtitle="Shows your onboarding status and platform gates."
             right={
               <div className="gates">
-                <Badge tone={gates.canListCars ? "ok" : "warn"}>{gates.canListCars ? "Can list cars" : "Listing locked"}</Badge>
+                <Badge tone={gates.canListCars ? "ok" : "warn"}>
+                  {gates.canListCars ? "Can list cars" : "Listing locked"}
+                </Badge>
                 <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
               </div>
             }
@@ -774,7 +903,9 @@ export default function App() {
 
                 <div className="kv">
                   <div className="k">Email verified</div>
-                  <div className="v">{profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
 
                 <div className="kv">
@@ -784,12 +915,16 @@ export default function App() {
 
                 <div className="kv">
                   <div className="k">Licence verified</div>
-                  <div className="v">{profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
 
                 <div className="kv">
                   <div className="k">Profile complete</div>
-                  <div className="v">{profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
               </div>
             )}
@@ -858,6 +993,58 @@ export default function App() {
           </div>
         )}
 
+        {/* MY BOOKINGS */}
+        {active === "My Bookings" && (
+          <Card title="My Bookings" subtitle="Your booking requests and their status.">
+            {!isAuthed ? (
+              <p className="muted">Login to view your bookings.</p>
+            ) : mine.length === 0 ? (
+              <p className="muted">No bookings yet.</p>
+            ) : (
+              <div className="stack">
+                {mine.map((b) => (
+                  <div className="rowCard" key={b.id}>
+                    <div className="rowCardMain">
+                      <div className="rowCardTitle">
+                        Booking #{b.id} <span className="muted">· car #{b.car_id}</span>
+                      </div>
+
+                      {(b.start_date || b.end_date) ? (
+                        <div className="rowCardSub">
+                          Dates: <span className="mono">{b.start_date || "?"}</span> →{" "}
+                          <span className="mono">{b.end_date || "?"}</span>
+                        </div>
+                      ) : null}
+
+                      <div className="rowCardSub">
+                        Status:{" "}
+                        <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : "bad"}>
+                          {b.status}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="rowCardActions">
+                      {b.status === "PENDING" ? (
+                        <Button
+                          variant="danger"
+                          onClick={() => cancelBooking(b.id)}
+                          loading={busy.cancel === b.id}
+                          disabled={busy.cancel !== null && busy.cancel !== b.id}
+                        >
+                          Cancel
+                        </Button>
+                      ) : (
+                        <span className="tiny muted">No action</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* LIST CAR */}
         {active === "List Car" && (
           <Card
@@ -869,13 +1056,7 @@ export default function App() {
               <div className="grid2">
                 <Field label="Make" value={make} onChange={(e) => setMake(e.target.value)} placeholder="Toyota" />
                 <Field label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Corolla" />
-                <Field
-                  label="Year"
-                  type="number"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                  placeholder="2020"
-                />
+                <Field label="Year" type="number" value={year} onChange={(e) => setYear(e.target.value)} placeholder="2020" />
                 <Field
                   label="Daily price (£)"
                   type="number"
@@ -909,6 +1090,14 @@ export default function App() {
                       <div className="rowCardTitle">
                         Booking #{b.id} <span className="muted">· car #{b.car_id} · renter #{b.renter_id}</span>
                       </div>
+
+                      {(b.start_date || b.end_date) ? (
+                        <div className="rowCardSub">
+                          Dates: <span className="mono">{b.start_date || "?"}</span> →{" "}
+                          <span className="mono">{b.end_date || "?"}</span>
+                        </div>
+                      ) : null}
+
                       <div className="rowCardSub">
                         Status:{" "}
                         <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : "bad"}>

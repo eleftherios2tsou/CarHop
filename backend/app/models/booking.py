@@ -1,6 +1,8 @@
-from sqlalchemy import String, ForeignKey, UniqueConstraint
+from datetime import date
+from sqlalchemy import String, ForeignKey, Date
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
+
 
 class BookingRequest(Base):
     __tablename__ = "bookings"
@@ -9,8 +11,10 @@ class BookingRequest(Base):
     car_id: Mapped[int] = mapped_column(ForeignKey("cars.id"))
     renter_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
-    status: Mapped[str] = mapped_column(String, default="PENDING")  
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("car_id", "renter_id", name="uq_car_renter"),
-    )
+    status: Mapped[str] = mapped_column(String, default="PENDING")
+
+
+
