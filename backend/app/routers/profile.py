@@ -1,10 +1,11 @@
-#backend/app/routers/profile.py
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import date
-from app.deps import get_db, get_current_verified_user
-from app.models.user import User
+
+from app.deps import get_current_verified_user, get_db
 from app.models.license import DriverLicense
+from app.models.user import User
 from app.schemas.license import LicenseIn, LicenseOut
 from app.schemas.profile import ProfileOut
 
@@ -39,6 +40,7 @@ def me(
         "has_license": has_license,
         "license_verified": license_verified,
         "profile_complete": profile_complete,
+        "role": getattr(current_user, "role", "USER"),
     }
 
 
@@ -79,8 +81,7 @@ def admin_verify_license(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
-
-    if current_user.id != 1:
+    if getattr(current_user, "role", "USER") != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin only")
 
     lic = db.query(DriverLicense).filter_by(user_id=user_id).first()

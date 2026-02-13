@@ -192,13 +192,11 @@ export default function App() {
   });
 
   const isAuthed = useMemo(() => !!token, [token]);
-  const isAdmin = useMemo(() => profile?.id === 1, [profile]);
-
+  const isAdmin = useMemo(() => profile?.role === "ADMIN", [profile]);
   function notify(msg, tone = "info") {
     setToast({ msg, tone });
   }
 
-  // ✅ shared auth error handler (clears stale token and routes user)
   const onAuthError = () => {
     clearToken();
     setTokenState("");

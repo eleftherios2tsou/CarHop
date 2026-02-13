@@ -1,19 +1,18 @@
-#backend/app/models/user.py
-from sqlalchemy import String, Boolean, Date
+from sqlalchemy import Boolean, Date, String
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import date
 from app.database import Base
 
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
 
-    email: Mapped[str] = mapped_column(String, unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String)
+    full_name: Mapped[str] = mapped_column(String, nullable=False)
+    date_of_birth: Mapped[Date] = mapped_column(Date, nullable=False)
 
-    full_name: Mapped[str] = mapped_column(String)
-    date_of_birth: Mapped[date] = mapped_column(Date)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    role: Mapped[str] = mapped_column(String, default="USER", nullable=False)

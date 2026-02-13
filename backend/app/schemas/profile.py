@@ -11,7 +11,7 @@ class ProfileOut(BaseModel):
     date_of_birth: date
     email_verified: bool
     is_active: bool
-
+    role: str
     has_license: bool
     license_verified: bool
     profile_complete: bool
