@@ -1,15 +1,11 @@
-# app/schemas/booking.py
+#backend/app/schemas/booking.py
 from datetime import date
 from pydantic import BaseModel
 
 
-class BookingCreate(BaseModel):
+class BookingCreateIn(BaseModel):
     start_date: date
     end_date: date
-
-
-class CancelIn(BaseModel):
-    reason: str | None = None
 
 
 class BookingOut(BaseModel):

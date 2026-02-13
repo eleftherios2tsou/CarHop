@@ -1,3 +1,4 @@
+#backend/app/models/email_verification.py
 from sqlalchemy import String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base

@@ -1,3 +1,5 @@
+#backend/app/schemas/car.py
+
 from pydantic import BaseModel
 
 class CarCreate(BaseModel):

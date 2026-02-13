@@ -1,3 +1,4 @@
+#backend/app/models/license.py
 from sqlalchemy import String, Boolean, Date, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import date

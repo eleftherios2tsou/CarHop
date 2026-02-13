@@ -1,3 +1,4 @@
+#backend/app/models/booking.py
 from datetime import date
 from sqlalchemy import String, ForeignKey, Date
 from sqlalchemy.orm import Mapped, mapped_column

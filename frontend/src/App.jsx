@@ -1,3 +1,4 @@
+//frontend/src/App.jsx
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
@@ -168,9 +169,9 @@ export default function App() {
   const [incoming, setIncoming] = useState([]);
   const [mine, setMine] = useState([]);
 
-  // booking dates (minimal realism)
-  const [startDate, setStartDate] = useState("2026-02-01");
-  const [endDate, setEndDate] = useState("2026-02-03");
+  // ✅ Marketplace date filter (also used for booking request)
+  const [startDate, setStartDate] = useState("2026-02-20");
+  const [endDate, setEndDate] = useState("2026-02-22");
 
   // UI
   const [active, setActive] = useState("Marketplace"); // nav
@@ -208,14 +209,26 @@ export default function App() {
     setActive("Auth");
   };
 
+  function isValidDateRange(s, e) {
+    if (!s || !e) return false;
+    const sd = new Date(s);
+    const ed = new Date(e);
+    if (Number.isNaN(sd.getTime()) || Number.isNaN(ed.getTime())) return false;
+    return ed >= sd;
+  }
+
   /* -----------------------------
      Data refresh
   ------------------------------ */
   async function refreshCars() {
     setBusy((b) => ({ ...b, cars: true }));
     try {
-      const data = await apiFetch("/cars/");
+      const datesOk = isValidDateRange(startDate, endDate);
+      const qs = datesOk ? `?from=${encodeURIComponent(startDate)}&to=${encodeURIComponent(endDate)}` : "";
+      const data = await apiFetch(`/cars/${qs}`);
       setCars(Array.isArray(data) ? data : []);
+    } catch (e) {
+      notify(e.message, "bad");
     } finally {
       setBusy((b) => ({ ...b, cars: false }));
     }
@@ -258,6 +271,8 @@ export default function App() {
     try {
       const data = await apiFetch("/bookings/mine", { token, onAuthError });
       setMine(Array.isArray(data) ? data : []);
+    } catch (e) {
+      notify(e.message, "bad");
     } finally {
       setBusy((b) => ({ ...b, mine: false }));
     }
@@ -265,6 +280,7 @@ export default function App() {
 
   useEffect(() => {
     refreshCars().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -272,6 +288,7 @@ export default function App() {
     refreshProfile().catch(() => {});
     refreshIncoming().catch(() => {});
     refreshMine().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   /* -----------------------------
@@ -399,7 +416,7 @@ export default function App() {
     e.preventDefault();
     setBusy((b) => ({ ...b, car: true }));
     try {
-      await apiFetch("/cars", {
+      await apiFetch("/cars/", {
         method: "POST",
         token,
         onAuthError,
@@ -421,23 +438,19 @@ export default function App() {
     }
   }
 
-  function isValidDateRange(s, e) {
-    if (!s || !e) return false;
-    const sd = new Date(s);
-    const ed = new Date(e);
-    if (Number.isNaN(sd.getTime()) || Number.isNaN(ed.getTime())) return false;
-    return ed >= sd;
-  }
-
   async function requestBooking(carId) {
     setBusy((b) => ({ ...b, booking: carId }));
     try {
+      const datesOk = isValidDateRange(startDate, endDate);
+      if (!datesOk) throw new Error("Please select a valid date range first.");
+
       const data = await apiFetch(`/bookings/${carId}`, {
         method: "POST",
         token,
         onAuthError,
         body: JSON.stringify({ start_date: startDate, end_date: endDate }),
       });
+
       notify(`Booking requested ✅ (booking_id: ${data.id})`, "ok");
       await refreshIncoming();
       await refreshMine();
@@ -456,6 +469,7 @@ export default function App() {
       notify(`Approved booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
+      await refreshMine();
     } catch (err) {
       notify(`Approve error: ${err.message}`, "bad");
     } finally {
@@ -469,6 +483,7 @@ export default function App() {
       const data = await apiFetch(`/bookings/${bookingId}/reject`, { method: "POST", token, onAuthError });
       notify(`Rejected booking ✅ (${data.id})`, "ok");
       await refreshIncoming();
+      await refreshMine();
     } catch (err) {
       notify(`Reject error: ${err.message}`, "bad");
     } finally {
@@ -479,13 +494,10 @@ export default function App() {
   async function cancelBooking(bookingId) {
     setBusy((b) => ({ ...b, cancel: bookingId }));
     try {
-      await apiFetch(`/bookings/${bookingId}/cancel`, {
-        method: "POST",
-        token,
-        onAuthError,
-        body: JSON.stringify({ reason: "User cancelled" }),
-      });
-      notify("Cancelled booking ✅", "ok");
+      const data = await apiFetch(`/bookings/${bookingId}/cancel`, { method: "POST", token, onAuthError });
+      notify(`Cancelled booking ✅ (${data.id})`, "ok");
+      await refreshCars();
+      await refreshIncoming();
       await refreshMine();
     } catch (err) {
       notify(`Cancel error: ${err.message}`, "bad");
@@ -512,36 +524,27 @@ export default function App() {
   }, [profile, isAuthed]);
 
   const navItems = useMemo(() => {
-    // Always visible
     const items = [{ key: "Marketplace", label: "Marketplace" }];
 
-    // Logged out: only Auth
     if (!isAuthed) {
       items.push({ key: "Auth", label: "Auth" });
       return items;
     }
 
-    // Logged in: core pages
     items.push({ key: "Profile", label: "Profile" });
 
-    // If email not verified, show Verify tab (and keep Auth hidden)
     if (!profile?.email_verified) {
       items.push({ key: "Verify Email", label: "Verify Email" });
     }
 
-    // License is always relevant after login
     items.push({ key: "License", label: "Driver License" });
 
-    // Renter bookings (useful after login)
-    items.push({ key: "My Bookings", label: "My Bookings" });
-
-    // Only show listing + incoming once email is verified
     if (profile?.email_verified) {
       items.push({ key: "List Car", label: "List Car" });
       items.push({ key: "Incoming", label: "Incoming Bookings" });
+      items.push({ key: "My Bookings", label: "My Bookings" });
     }
 
-    // Admin extra
     if (isAdmin) {
       items.push({ key: "Admin", label: "Admin" });
     }
@@ -559,6 +562,8 @@ export default function App() {
   /* -----------------------------
      Render
   ------------------------------ */
+  const datesOk = isValidDateRange(startDate, endDate);
+
   return (
     <div className="appShell">
       <Toast tone={toast.tone} message={toast.msg} onClose={() => setToast({ tone: "info", msg: "" })} />
@@ -568,7 +573,7 @@ export default function App() {
           <div className="logo">CH</div>
           <div>
             <div className="brandName">CarHop</div>
-            <div className="brandSub">P2P Car Rental </div>
+            <div className="brandSub">P2P Car Rental</div>
           </div>
         </div>
 
@@ -583,7 +588,6 @@ export default function App() {
             {profile?.email_verified ? <Badge tone="ok">Verified</Badge> : <Badge tone="warn">Pending</Badge>}
           </div>
 
-          {/* ✅ 3-state licence badge */}
           <div className="statusRow">
             <span>Licence</span>
             {!profile?.has_license ? (
@@ -640,11 +644,7 @@ export default function App() {
           </div>
 
           <div className="topbarRight">
-            <Button
-              variant="secondary"
-              onClick={() => refreshCars().catch((e) => notify(e.message, "bad"))}
-              loading={busy.cars}
-            >
+            <Button variant="secondary" onClick={refreshCars} loading={busy.cars}>
               Refresh Cars
             </Button>
             <Button
@@ -657,19 +657,19 @@ export default function App() {
             </Button>
             <Button
               variant="secondary"
-              onClick={() => refreshMine().catch((e) => notify(e.message, "bad"))}
-              disabled={!isAuthed}
-              loading={busy.mine}
-            >
-              Refresh My Bookings
-            </Button>
-            <Button
-              variant="secondary"
               onClick={() => refreshIncoming().catch((e) => notify(e.message, "bad"))}
               disabled={!isAuthed}
               loading={busy.incoming}
             >
               Refresh Incoming
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => refreshMine().catch((e) => notify(e.message, "bad"))}
+              disabled={!isAuthed}
+              loading={busy.mine}
+            >
+              Refresh My Bookings
             </Button>
           </div>
         </header>
@@ -678,19 +678,39 @@ export default function App() {
         {active === "Marketplace" && (
           <Card
             title="Marketplace"
-            subtitle="Browse cars. Booking requires email + licence verification."
+            subtitle="Pick dates to see only cars available for those dates. Booking requires email + licence verification."
             right={
               <div className="gates">
                 <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
               </div>
             }
           >
+            <div className="row" style={{ marginBottom: 12 }}>
+              <label className="field" style={{ flex: 1 }}>
+                <span className="fieldLabel">From</span>
+                <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </label>
+              <label className="field" style={{ flex: 1 }}>
+                <span className="fieldLabel">To</span>
+                <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              </label>
+
+              <Button variant="secondary" onClick={refreshCars} disabled={!datesOk} loading={busy.cars}>
+                Search availability
+              </Button>
+            </div>
+
+            {!datesOk ? (
+              <div className="tiny muted" style={{ marginBottom: 10 }}>
+                End date must be on/after start date.
+              </div>
+            ) : null}
+
             {cars.length === 0 ? (
-              <p className="muted">No cars listed yet.</p>
+              <p className="muted">No cars available for the selected dates.</p>
             ) : (
               <div className="grid">
                 {cars.map((c) => {
-                  const datesOk = isValidDateRange(startDate, endDate);
                   const canRequest = gates.canBook && datesOk;
 
                   return (
@@ -708,45 +728,20 @@ export default function App() {
                         <div className="mono">owner #{c.owner_id}</div>
                       </div>
 
-                      {/* ✅ Minimal realism: date range inputs */}
-                      {gates.canBook ? (
-                        <div className="row">
-                          <label className="field" style={{ flex: 1 }}>
-                            <span className="fieldLabel">Start date</span>
-                            <input
-                              className="input"
-                              type="date"
-                              value={startDate}
-                              onChange={(e) => setStartDate(e.target.value)}
-                            />
-                          </label>
-
-                          <label className="field" style={{ flex: 1 }}>
-                            <span className="fieldLabel">End date</span>
-                            <input
-                              className="input"
-                              type="date"
-                              value={endDate}
-                              onChange={(e) => setEndDate(e.target.value)}
-                            />
-                          </label>
-                        </div>
-                      ) : null}
-
                       <div className="tileActions">
-                        <Button
-                          onClick={() => requestBooking(c.id)}
-                          disabled={!canRequest}
-                          loading={busy.booking === c.id}
-                        >
+                        <Button onClick={() => requestBooking(c.id)} disabled={!canRequest} loading={busy.booking === c.id}>
                           Request Booking
                         </Button>
 
                         {!gates.canBook ? (
                           <div className="tiny muted">Unlock: verify email + admin-verified licence.</div>
                         ) : !datesOk ? (
-                          <div className="tiny muted">End date must be on/after start date.</div>
-                        ) : null}
+                          <div className="tiny muted">Pick a valid date range first.</div>
+                        ) : (
+                          <div className="tiny muted">
+                            Requested dates: <span className="mono">{startDate}</span> → <span className="mono">{endDate}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -761,46 +756,22 @@ export default function App() {
           <div className="twoCol">
             <Card title="Register / Login" subtitle="JWT auth + email verification gate.">
               <div className="segmented">
-                <button
-                  className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"}
-                  onClick={() => setAuthMode("register")}
-                  type="button"
-                >
+                <button className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"} onClick={() => setAuthMode("register")} type="button">
                   Register
                 </button>
-                <button
-                  className={authMode === "login" ? "segBtn segBtnActive" : "segBtn"}
-                  onClick={() => setAuthMode("login")}
-                  type="button"
-                >
+                <button className={authMode === "login" ? "segBtn segBtnActive" : "segBtn"} onClick={() => setAuthMode("login")} type="button">
                   Login
                 </button>
               </div>
 
               <form className="form" onSubmit={handleAuth}>
-                <Field
-                  label="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@carhop.com"
-                />
-                <Field
-                  label="Password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
+                <Field label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@carhop.com" />
+                <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
 
                 {authMode === "register" ? (
                   <>
                     <Field label="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                    <Field
-                      label="Date of birth"
-                      value={dob}
-                      onChange={(e) => setDob(e.target.value)}
-                      placeholder="YYYY-MM-DD"
-                    />
+                    <Field label="Date of birth" value={dob} onChange={(e) => setDob(e.target.value)} placeholder="YYYY-MM-DD" />
                   </>
                 ) : null}
 
@@ -818,22 +789,12 @@ export default function App() {
 
             <Card title="Email Verification" subtitle="MVP mode: register returns a verification token (simulated email).">
               <div className="form">
-                <Field
-                  label="Verification token"
-                  value={verificationToken}
-                  onChange={(e) => setVerificationToken(e.target.value)}
-                  placeholder="paste token here"
-                />
+                <Field label="Verification token" value={verificationToken} onChange={(e) => setVerificationToken(e.target.value)} placeholder="paste token here" />
                 <div className="row">
                   <Button onClick={handleVerifyEmail} loading={busy.verify} disabled={!verificationToken}>
                     Verify Email
                   </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={handleLoginAfterVerify}
-                    loading={busy.auth}
-                    disabled={!verificationToken}
-                  >
+                  <Button variant="secondary" onClick={handleLoginAfterVerify} loading={busy.auth} disabled={!verificationToken}>
                     Login after verify
                   </Button>
                 </div>
@@ -842,16 +803,11 @@ export default function App() {
           </div>
         )}
 
-        {/* VERIFY EMAIL (separate nav page) */}
+        {/* VERIFY EMAIL */}
         {active === "Verify Email" && (
           <Card title="Verify Email" subtitle="Paste the token returned on registration.">
             <div className="form" style={{ maxWidth: 520 }}>
-              <Field
-                label="Verification token"
-                value={verificationToken}
-                onChange={(e) => setVerificationToken(e.target.value)}
-                placeholder="paste token here"
-              />
+              <Field label="Verification token" value={verificationToken} onChange={(e) => setVerificationToken(e.target.value)} placeholder="paste token here" />
               <div className="row">
                 <Button onClick={handleVerifyEmail} loading={busy.verify} disabled={!verificationToken}>
                   Verify
@@ -871,9 +827,7 @@ export default function App() {
             subtitle="Shows your onboarding status and platform gates."
             right={
               <div className="gates">
-                <Badge tone={gates.canListCars ? "ok" : "warn"}>
-                  {gates.canListCars ? "Can list cars" : "Listing locked"}
-                </Badge>
+                <Badge tone={gates.canListCars ? "ok" : "warn"}>{gates.canListCars ? "Can list cars" : "Listing locked"}</Badge>
                 <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
               </div>
             }
@@ -903,9 +857,7 @@ export default function App() {
 
                 <div className="kv">
                   <div className="k">Email verified</div>
-                  <div className="v">
-                    {profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
+                  <div className="v">{profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
                 </div>
 
                 <div className="kv">
@@ -915,16 +867,12 @@ export default function App() {
 
                 <div className="kv">
                   <div className="k">Licence verified</div>
-                  <div className="v">
-                    {profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
+                  <div className="v">{profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
                 </div>
 
                 <div className="kv">
                   <div className="k">Profile complete</div>
-                  <div className="v">
-                    {profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
+                  <div className="v">{profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
                 </div>
               </div>
             )}
@@ -937,7 +885,7 @@ export default function App() {
                     If email isn’t verified: go to <b>Verify Email</b>.
                   </li>
                   <li>
-                    If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin (user #1).
+                    If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin (user #1) or via DB.
                   </li>
                 </ul>
               </div>
@@ -950,24 +898,9 @@ export default function App() {
           <div className="twoCol">
             <Card title="Driver License" subtitle="Submit or update licence details (admin verification required).">
               <form className="form" onSubmit={submitLicense}>
-                <Field
-                  label="Licence number"
-                  value={licenseNumber}
-                  onChange={(e) => setLicenseNumber(e.target.value)}
-                  placeholder="UK-1234567"
-                />
-                <Field
-                  label="Issuing country"
-                  value={issuingCountry}
-                  onChange={(e) => setIssuingCountry(e.target.value)}
-                  placeholder="UK"
-                />
-                <Field
-                  label="Expiry date"
-                  value={expiryDate}
-                  onChange={(e) => setExpiryDate(e.target.value)}
-                  placeholder="YYYY-MM-DD"
-                />
+                <Field label="Licence number" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="UK-1234567" />
+                <Field label="Issuing country" value={issuingCountry} onChange={(e) => setIssuingCountry(e.target.value)} placeholder="UK" />
+                <Field label="Expiry date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} placeholder="YYYY-MM-DD" />
                 <Button type="submit" disabled={!isAuthed} loading={busy.license}>
                   Submit / Update
                 </Button>
@@ -977,72 +910,14 @@ export default function App() {
 
             <Card title="Admin: Verify Licence" subtitle="MVP rule: user #1 is admin.">
               <div className="form">
-                <Field
-                  label="User ID to verify"
-                  type="number"
-                  min="1"
-                  value={adminVerifyUserId}
-                  onChange={(e) => setAdminVerifyUserId(e.target.value)}
-                />
+                <Field label="User ID to verify" type="number" min="1" value={adminVerifyUserId} onChange={(e) => setAdminVerifyUserId(e.target.value)} />
                 <Button onClick={adminVerifyLicense} disabled={!isAuthed || !isAdmin} loading={busy.admin}>
                   Verify Licence
                 </Button>
-                {!isAdmin ? <div className="tiny muted">Login as user #1 to use admin verify.</div> : null}
+                {!isAdmin ? <div className="tiny muted">Login as user #1 to use admin verify (or verify via DB).</div> : null}
               </div>
             </Card>
           </div>
-        )}
-
-        {/* MY BOOKINGS */}
-        {active === "My Bookings" && (
-          <Card title="My Bookings" subtitle="Your booking requests and their status.">
-            {!isAuthed ? (
-              <p className="muted">Login to view your bookings.</p>
-            ) : mine.length === 0 ? (
-              <p className="muted">No bookings yet.</p>
-            ) : (
-              <div className="stack">
-                {mine.map((b) => (
-                  <div className="rowCard" key={b.id}>
-                    <div className="rowCardMain">
-                      <div className="rowCardTitle">
-                        Booking #{b.id} <span className="muted">· car #{b.car_id}</span>
-                      </div>
-
-                      {(b.start_date || b.end_date) ? (
-                        <div className="rowCardSub">
-                          Dates: <span className="mono">{b.start_date || "?"}</span> →{" "}
-                          <span className="mono">{b.end_date || "?"}</span>
-                        </div>
-                      ) : null}
-
-                      <div className="rowCardSub">
-                        Status:{" "}
-                        <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : "bad"}>
-                          {b.status}
-                        </Badge>
-                      </div>
-                    </div>
-
-                    <div className="rowCardActions">
-                      {b.status === "PENDING" ? (
-                        <Button
-                          variant="danger"
-                          onClick={() => cancelBooking(b.id)}
-                          loading={busy.cancel === b.id}
-                          disabled={busy.cancel !== null && busy.cancel !== b.id}
-                        >
-                          Cancel
-                        </Button>
-                      ) : (
-                        <span className="tiny muted">No action</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
         )}
 
         {/* LIST CAR */}
@@ -1057,13 +932,7 @@ export default function App() {
                 <Field label="Make" value={make} onChange={(e) => setMake(e.target.value)} placeholder="Toyota" />
                 <Field label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Corolla" />
                 <Field label="Year" type="number" value={year} onChange={(e) => setYear(e.target.value)} placeholder="2020" />
-                <Field
-                  label="Daily price (£)"
-                  type="number"
-                  value={dailyPrice}
-                  onChange={(e) => setDailyPrice(e.target.value)}
-                  placeholder="50"
-                />
+                <Field label="Daily price (£)" type="number" value={dailyPrice} onChange={(e) => setDailyPrice(e.target.value)} placeholder="50" />
               </div>
 
               <Button type="submit" disabled={!gates.canListCars} loading={busy.car}>
@@ -1091,16 +960,13 @@ export default function App() {
                         Booking #{b.id} <span className="muted">· car #{b.car_id} · renter #{b.renter_id}</span>
                       </div>
 
-                      {(b.start_date || b.end_date) ? (
-                        <div className="rowCardSub">
-                          Dates: <span className="mono">{b.start_date || "?"}</span> →{" "}
-                          <span className="mono">{b.end_date || "?"}</span>
-                        </div>
-                      ) : null}
+                      <div className="rowCardSub">
+                        Dates: <span className="mono">{b.start_date}</span> → <span className="mono">{b.end_date}</span>
+                      </div>
 
                       <div className="rowCardSub">
                         Status:{" "}
-                        <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : "bad"}>
+                        <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : b.status === "REJECTED" ? "bad" : "warn"}>
                           {b.status}
                         </Badge>
                       </div>
@@ -1136,6 +1002,58 @@ export default function App() {
           </Card>
         )}
 
+        {/* MY BOOKINGS */}
+        {active === "My Bookings" && (
+          <Card title="My Bookings" subtitle="Your booking requests (renter view).">
+            {!isAuthed ? (
+              <p className="muted">Login to view your bookings.</p>
+            ) : mine.length === 0 ? (
+              <p className="muted">No bookings yet.</p>
+            ) : (
+              <div className="stack">
+                {mine.map((b) => {
+                  const canCancel =
+                    b.status === "PENDING" ||
+                    (b.status === "APPROVED" && new Date(b.start_date).getTime() > Date.now());
+
+                  return (
+                    <div className="rowCard" key={b.id}>
+                      <div className="rowCardMain">
+                        <div className="rowCardTitle">
+                          Booking #{b.id} <span className="muted">· car #{b.car_id}</span>
+                        </div>
+
+                        <div className="rowCardSub">
+                          Dates: <span className="mono">{b.start_date}</span> → <span className="mono">{b.end_date}</span>
+                        </div>
+
+                        <div className="rowCardSub">
+                          Status:{" "}
+                          <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : b.status === "REJECTED" ? "bad" : "warn"}>
+                            {b.status}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="rowCardActions">
+                        <Button
+                          variant="danger"
+                          onClick={() => cancelBooking(b.id)}
+                          disabled={!canCancel}
+                          loading={busy.cancel === b.id}
+                        >
+                          Cancel
+                        </Button>
+                        {!canCancel ? <span className="tiny muted">Cannot cancel</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        )}
+
         {/* ADMIN */}
         {active === "Admin" && isAdmin && (
           <Card title="Admin Panel" subtitle="Minimal admin surface for MVP demo.">
@@ -1149,13 +1067,7 @@ export default function App() {
             </div>
 
             <div className="form" style={{ maxWidth: 520 }}>
-              <Field
-                label="User ID to verify licence"
-                type="number"
-                min="1"
-                value={adminVerifyUserId}
-                onChange={(e) => setAdminVerifyUserId(e.target.value)}
-              />
+              <Field label="User ID to verify licence" type="number" min="1" value={adminVerifyUserId} onChange={(e) => setAdminVerifyUserId(e.target.value)} />
               <Button onClick={adminVerifyLicense} loading={busy.admin}>
                 Verify Licence
               </Button>

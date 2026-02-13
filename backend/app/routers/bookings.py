@@ -1,15 +1,15 @@
-# app/routers/bookings.py
+# backend/app/routers/bookings.py
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, exists, select
 
 from app.deps import get_db, get_current_verified_user
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.license import DriverLicense
 from app.models.user import User
-from app.schemas.booking import BookingOut, BookingCreate, CancelIn
+from app.schemas.booking import BookingOut, BookingCreateIn
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
@@ -22,36 +22,39 @@ def require_verified_license(db: Session, user_id: int):
         raise HTTPException(status_code=403, detail="Driver license not verified")
 
 
-def validate_date_range(start_date: date, end_date: date):
+def validate_dates(start_date: date, end_date: date):
     if end_date < start_date:
-        raise HTTPException(status_code=400, detail="Invalid date range (end_date before start_date)")
+        raise HTTPException(status_code=400, detail="end_date must be on/after start_date")
 
 
-def has_approved_overlap(db: Session, car_id: int, start_date: date, end_date: date) -> bool:
-    overlap = (
-        db.query(BookingRequest)
-        .filter(
-            BookingRequest.car_id == car_id,
-            BookingRequest.status == "APPROVED",
-            and_(
-                BookingRequest.start_date <= end_date,
-                BookingRequest.end_date >= start_date,
-            ),
-        )
-        .first()
+def approved_overlap_exists(db: Session, car_id: int, start_date: date, end_date: date, exclude_booking_id: int | None = None) -> bool:
+    """
+    Overlap definition (inclusive): existing.start <= end AND existing.end >= start
+    Only blocks APPROVED overlaps (PENDING overlaps allowed by design).
+    """
+    q = select(1).where(
+        BookingRequest.car_id == car_id,
+        BookingRequest.status == "APPROVED",
+        and_(
+            BookingRequest.start_date <= end_date,
+            BookingRequest.end_date >= start_date,
+        ),
     )
-    return overlap is not None
+    if exclude_booking_id is not None:
+        q = q.where(BookingRequest.id != exclude_booking_id)
+
+    return db.query(exists(q)).scalar()
 
 
 @router.post("/{car_id}", response_model=BookingOut)
 def request_booking(
     car_id: int,
-    payload: BookingCreate,
+    payload: BookingCreateIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
     require_verified_license(db, current_user.id)
-    validate_date_range(payload.start_date, payload.end_date)
+    validate_dates(payload.start_date, payload.end_date)
 
     car = db.get(CarListing, car_id)
     if not car:
@@ -60,9 +63,9 @@ def request_booking(
     if car.owner_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot book your own car")
 
-    # Allow overlapping PENDING requests; block only APPROVED overlap.
-    if has_approved_overlap(db, car_id, payload.start_date, payload.end_date):
-        raise HTTPException(status_code=400, detail="Car already booked for these dates")
+    # Block only APPROVED overlaps (pending overlap allowed)
+    if approved_overlap_exists(db, car_id, payload.start_date, payload.end_date):
+        raise HTTPException(status_code=400, detail="Car is already booked for those dates")
 
     booking = BookingRequest(
         car_id=car_id,
@@ -72,12 +75,7 @@ def request_booking(
         status="PENDING",
     )
     db.add(booking)
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="Booking already exists")
-
+    db.commit()
     db.refresh(booking)
     return booking
 
@@ -89,14 +87,13 @@ def incoming_bookings(
 ):
     return (
         db.query(BookingRequest)
-        .join(CarListing)
+        .join(CarListing, CarListing.id == BookingRequest.car_id)
         .filter(CarListing.owner_id == current_user.id)
         .order_by(BookingRequest.id.desc())
         .all()
     )
 
 
-# ✅ NEW: renter bookings
 @router.get("/mine", response_model=list[BookingOut])
 def my_bookings(
     db: Session = Depends(get_db),
@@ -127,8 +124,9 @@ def approve_booking(
     if booking.status != "PENDING":
         raise HTTPException(status_code=400, detail="Booking not pending")
 
-    if has_approved_overlap(db, booking.car_id, booking.start_date, booking.end_date):
-        raise HTTPException(status_code=400, detail="Cannot approve: dates overlap with an approved booking")
+    # Ensure approving this does not clash with an already-approved booking.
+    if approved_overlap_exists(db, booking.car_id, booking.start_date, booking.end_date, exclude_booking_id=booking.id):
+        raise HTTPException(status_code=400, detail="Cannot approve: overlaps an approved booking")
 
     booking.status = "APPROVED"
     db.commit()
@@ -159,31 +157,37 @@ def reject_booking(
     return booking
 
 
-# ✅ NEW: cancellation (renter can cancel PENDING; owner can cancel PENDING too)
 @router.post("/{booking_id}/cancel", response_model=BookingOut)
 def cancel_booking(
     booking_id: int,
-    payload: CancelIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
+    """
+    Renter cancels their own booking.
+    Rules (simple V2):
+    - Only the renter can cancel.
+    - Can cancel PENDING any time.
+    - Can cancel APPROVED only if start_date is still in the future.
+    """
     booking = db.get(BookingRequest, booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    car = db.get(CarListing, booking.car_id)
-    if not car:
-        raise HTTPException(status_code=404, detail="Car not found")
-
-    is_renter = booking.renter_id == current_user.id
-    is_owner = car.owner_id == current_user.id
-    if not (is_renter or is_owner):
+    if booking.renter_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    if booking.status != "PENDING":
-        raise HTTPException(status_code=400, detail="Only pending bookings can be cancelled in v2 step")
+    today = date.today()
 
-    booking.status = "CANCELLED"
+    if booking.status == "PENDING":
+        booking.status = "CANCELLED"
+    elif booking.status == "APPROVED":
+        if booking.start_date <= today:
+            raise HTTPException(status_code=400, detail="Cannot cancel after the booking has started")
+        booking.status = "CANCELLED"
+    else:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel a booking in status {booking.status}")
+
     db.commit()
     db.refresh(booking)
     return booking

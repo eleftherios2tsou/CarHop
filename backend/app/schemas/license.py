@@ -1,3 +1,5 @@
+#backend/app/schemas/license.py
+
 from pydantic import BaseModel
 from datetime import date
 

@@ -1,3 +1,4 @@
+#backend/app/models/car.py
 from sqlalchemy import String, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
