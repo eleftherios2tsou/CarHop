@@ -1,6 +1,5 @@
-#backend/app/models/booking.py
 from datetime import date
-from sqlalchemy import String, ForeignKey, Date
+from sqlalchemy import Date, ForeignKey, String, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -8,7 +7,13 @@ from app.database import Base
 class BookingRequest(Base):
     __tablename__ = "bookings"
 
+    __table_args__ = (
+
+        Index("ix_bookings_car_status_dates", "car_id", "status", "start_date", "end_date"),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
+
     car_id: Mapped[int] = mapped_column(ForeignKey("cars.id"))
     renter_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
@@ -16,6 +21,3 @@ class BookingRequest(Base):
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     status: Mapped[str] = mapped_column(String, default="PENDING")
-
-
-
