@@ -1,3 +1,4 @@
+#backend/app/models/user.py
 from sqlalchemy import Boolean, Date, String
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
