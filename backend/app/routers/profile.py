@@ -1,10 +1,11 @@
 #backend/app/routers/profile.py
-from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.deps import get_current_verified_user, get_db
-from app.models.license import DriverLicense
+from datetime import date
+
+from app.deps import get_db, get_current_verified_user, csrf_protect
 from app.models.user import User
+from app.models.license import DriverLicense
 from app.schemas.license import LicenseIn, LicenseOut
 from app.schemas.profile import ProfileOut
 
@@ -36,14 +37,14 @@ def me(
         "date_of_birth": current_user.date_of_birth,
         "email_verified": current_user.email_verified,
         "is_active": current_user.is_active,
+        "role": current_user.role, 
         "has_license": has_license,
         "license_verified": license_verified,
         "profile_complete": profile_complete,
-        "role": current_user.role,
     }
 
 
-@router.post("/license", response_model=LicenseOut)
+@router.post("/license", response_model=LicenseOut, dependencies=[Depends(csrf_protect)])
 def submit_license(
     payload: LicenseIn,
     db: Session = Depends(get_db),
@@ -58,7 +59,7 @@ def submit_license(
         lic.license_number = payload.license_number
         lic.issuing_country = payload.issuing_country
         lic.expiry_date = payload.expiry_date
-        lic.is_verified = False
+        lic.is_verified = False  # reset verification if changed
     else:
         lic = DriverLicense(
             user_id=current_user.id,
@@ -74,12 +75,13 @@ def submit_license(
     return lic
 
 
-@router.post("/license/{user_id}/verify", response_model=LicenseOut)
+@router.post("/license/{user_id}/verify", response_model=LicenseOut, dependencies=[Depends(csrf_protect)])
 def admin_verify_license(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
+    # ✅ role-based admin
     if current_user.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin only")
 

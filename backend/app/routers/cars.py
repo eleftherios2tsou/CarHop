@@ -1,11 +1,11 @@
 #backend/app/routers/cars.py
-
 from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, exists, select
 
-from app.deps import get_db, get_current_user
+from app.deps import get_db, get_current_user, csrf_protect
 from app.models.car import CarListing
 from app.models.booking import BookingRequest
 from app.models.user import User
@@ -27,12 +27,6 @@ def list_cars(
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
 ):
-    """
-    Availability-aware marketplace search.
-    - If no dates: return all cars.
-    - If from/to provided: return cars with NO APPROVED overlap in the date range.
-    Overlap definition: approved.start <= to_date AND approved.end >= from_date
-    """
     validate_range(from_date, to_date)
 
     q = db.query(CarListing)
@@ -55,7 +49,7 @@ def list_cars(
     return q.order_by(CarListing.id.desc()).all()
 
 
-@router.post("/", response_model=CarOut)
+@router.post("/", response_model=CarOut, dependencies=[Depends(csrf_protect)])
 def create_car(
     payload: CarCreate,
     db: Session = Depends(get_db),

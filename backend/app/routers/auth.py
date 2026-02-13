@@ -1,14 +1,17 @@
 #backend/app/routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from uuid import uuid4
-from datetime import date
+
 from app.deps import get_db
 from app.models.user import User
 from app.models.email_verification import EmailVerificationToken
-from app.schemas.auth import RegisterIn, LoginIn, TokenOut
+from app.schemas.auth import RegisterIn, LoginIn
 from app.auth import hash_password, verify_password
 from app.jwt import create_access_token
+from app.security import new_csrf_token, set_auth_cookies, clear_auth_cookies
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -48,10 +51,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     db.add(token)
     db.commit()
 
-    return {
-        "message": "Registered. Verify your email.",
-        "verification_token": token.token,
-    }
+    return {"message": "Registered. Verify your email.", "verification_token": token.token}
 
 
 @router.post("/verify-email/{token}")
@@ -65,14 +65,13 @@ def verify_email(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid token")
 
     user.email_verified = True
-
     db.delete(record)
     db.commit()
 
     return {"message": "Email verified"}
 
 
-@router.post("/login", response_model=TokenOut)
+@router.post("/login")
 def login(payload: LoginIn, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(email=payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
@@ -81,5 +80,17 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
     if not user.email_verified:
         raise HTTPException(status_code=403, detail="Email not verified")
 
-    token = create_access_token(sub=str(user.id))
-    return {"access_token": token}
+    access = create_access_token(sub=str(user.id))
+    csrf = new_csrf_token()
+
+    response = Response(content='{"message":"Logged in"}', media_type="application/json")
+    # dev-friendly defaults: secure=False, samesite="lax"
+    set_auth_cookies(response, access_token=access, csrf_token=csrf, secure=False, same_site="lax")
+    return response
+
+
+@router.post("/logout")
+def logout():
+    response = Response(content='{"message":"Logged out"}', media_type="application/json")
+    clear_auth_cookies(response, secure=False, same_site="lax")
+    return response

@@ -1,15 +1,11 @@
 #backend/app/deps.py
-
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
+from app.jwt import decode_access_token
 from app.models.user import User
-from app.jwt import SECRET_KEY, ALGORITHM
-
-security = HTTPBearer()
+from app.security import ACCESS_COOKIE, require_csrf
 
 
 def get_db():
@@ -21,28 +17,33 @@ def get_db():
 
 
 def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
-) -> User:
-    token = creds.credentials
+):
+    token = request.cookies.get(ACCESS_COOKIE)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        sub = payload.get("sub")
-        if not sub:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = db.get(User, int(sub))
+    user = db.get(User, user_id)
     if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="Invalid user")
+        raise HTTPException(status_code=401, detail="Inactive user")
 
     return user
 
 
 def get_current_verified_user(
-    user: User = Depends(get_current_user),
-) -> User:
-    if not user.email_verified:
+    current_user: User = Depends(get_current_user),
+):
+    if not current_user.email_verified:
         raise HTTPException(status_code=403, detail="Email not verified")
-    return user
+    return current_user
+
+
+def csrf_protect(request: Request):
+    require_csrf(request)

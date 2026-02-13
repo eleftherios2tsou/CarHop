@@ -1,10 +1,11 @@
 # backend/app/routers/bookings.py
 from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, exists, select
 
-from app.deps import get_db, get_current_verified_user
+from app.deps import get_db, get_current_verified_user, csrf_protect
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.license import DriverLicense
@@ -27,7 +28,13 @@ def validate_dates(start_date: date, end_date: date):
         raise HTTPException(status_code=400, detail="end_date must be on/after start_date")
 
 
-def approved_overlap_exists(db: Session, car_id: int, start_date: date, end_date: date, exclude_booking_id: int | None = None) -> bool:
+def approved_overlap_exists(
+    db: Session,
+    car_id: int,
+    start_date: date,
+    end_date: date,
+    exclude_booking_id: int | None = None,
+) -> bool:
     """
     Overlap definition (inclusive): existing.start <= end AND existing.end >= start
     Only blocks APPROVED overlaps (PENDING overlaps allowed by design).
@@ -46,7 +53,7 @@ def approved_overlap_exists(db: Session, car_id: int, start_date: date, end_date
     return db.query(exists(q)).scalar()
 
 
-@router.post("/{car_id}", response_model=BookingOut)
+@router.post("/{car_id}", response_model=BookingOut, dependencies=[Depends(csrf_protect)])
 def request_booking(
     car_id: int,
     payload: BookingCreateIn,
@@ -63,7 +70,6 @@ def request_booking(
     if car.owner_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot book your own car")
 
-    # Block only APPROVED overlaps (pending overlap allowed)
     if approved_overlap_exists(db, car_id, payload.start_date, payload.end_date):
         raise HTTPException(status_code=400, detail="Car is already booked for those dates")
 
@@ -107,7 +113,7 @@ def my_bookings(
     )
 
 
-@router.post("/{booking_id}/approve", response_model=BookingOut)
+@router.post("/{booking_id}/approve", response_model=BookingOut, dependencies=[Depends(csrf_protect)])
 def approve_booking(
     booking_id: int,
     db: Session = Depends(get_db),
@@ -124,7 +130,6 @@ def approve_booking(
     if booking.status != "PENDING":
         raise HTTPException(status_code=400, detail="Booking not pending")
 
-    # Ensure approving this does not clash with an already-approved booking.
     if approved_overlap_exists(db, booking.car_id, booking.start_date, booking.end_date, exclude_booking_id=booking.id):
         raise HTTPException(status_code=400, detail="Cannot approve: overlaps an approved booking")
 
@@ -134,7 +139,7 @@ def approve_booking(
     return booking
 
 
-@router.post("/{booking_id}/reject", response_model=BookingOut)
+@router.post("/{booking_id}/reject", response_model=BookingOut, dependencies=[Depends(csrf_protect)])
 def reject_booking(
     booking_id: int,
     db: Session = Depends(get_db),
@@ -157,7 +162,7 @@ def reject_booking(
     return booking
 
 
-@router.post("/{booking_id}/cancel", response_model=BookingOut)
+@router.post("/{booking_id}/cancel", response_model=BookingOut, dependencies=[Depends(csrf_protect)])
 def cancel_booking(
     booking_id: int,
     db: Session = Depends(get_db),
@@ -165,7 +170,7 @@ def cancel_booking(
 ):
     """
     Renter cancels their own booking.
-    Rules (simple V2):
+    Rules:
     - Only the renter can cancel.
     - Can cancel PENDING any time.
     - Can cancel APPROVED only if start_date is still in the future.

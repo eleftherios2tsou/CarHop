@@ -1,34 +1,41 @@
-//frontend/src/App.jsx
+// frontend/src/App.jsx
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 const API = "/api";
 
 /* -----------------------------
-   Token helpers
+   Cookie helpers (for CSRF)
 ------------------------------ */
-function getToken() {
-  return localStorage.getItem("token") || "";
-}
-function saveToken(t) {
-  localStorage.setItem("token", t);
-}
-function clearToken() {
-  localStorage.removeItem("token");
+function getCookie(name) {
+  const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  return m ? decodeURIComponent(m[2]) : "";
 }
 
 /* -----------------------------
-   Fetch helper
-   - Adds onAuthError() hook for 401/403 so stale tokens are auto-cleared
+   Fetch helper (cookie auth)
+   - Always sends cookies (HttpOnly access_token)
+   - Sends CSRF header for unsafe methods (double-submit cookie)
+   - onAuthError() hook for 401/403
 ------------------------------ */
-async function apiFetch(path, { token, onAuthError, ...opts } = {}) {
+async function apiFetch(path, { onAuthError, ...opts } = {}) {
   const headers = {
     ...(opts.headers || {}),
     ...(opts.body ? { "Content-Type": "application/json" } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
+  const method = (opts.method || "GET").toUpperCase();
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const csrf = getCookie("csrf_token");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+
+  const res = await fetch(`${API}${path}`, {
+    ...opts,
+    headers,
+    credentials: "include", // ✅ send cookies
+  });
+
   const text = await res.text();
 
   let data = null;
@@ -38,7 +45,7 @@ async function apiFetch(path, { token, onAuthError, ...opts } = {}) {
     data = text;
   }
 
-  // 🔒 auto-handle invalid/expired tokens
+  // 🔒 auth handling
   if (res.status === 401 || res.status === 403) {
     if (onAuthError) onAuthError();
     const msg =
@@ -140,8 +147,7 @@ function Toast({ tone = "info", message, onClose }) {
    App
 ------------------------------ */
 export default function App() {
-  // auth
-  const [token, setTokenState] = useState(getToken());
+  // auth form
   const [authMode, setAuthMode] = useState("register"); // register | login
   const [email, setEmail] = useState("host@carhop.com");
   const [password, setPassword] = useState("password123");
@@ -169,12 +175,12 @@ export default function App() {
   const [incoming, setIncoming] = useState([]);
   const [mine, setMine] = useState([]);
 
-  // ✅ Marketplace date filter (also used for booking request)
+  // marketplace date filter + booking request
   const [startDate, setStartDate] = useState("2026-02-20");
   const [endDate, setEndDate] = useState("2026-02-22");
 
   // UI
-  const [active, setActive] = useState("Marketplace"); // nav
+  const [active, setActive] = useState("Marketplace");
   const [toast, setToast] = useState({ tone: "info", msg: "" });
   const [busy, setBusy] = useState({
     auth: false,
@@ -189,17 +195,18 @@ export default function App() {
     booking: null, // carId
     decision: null, // bookingId
     cancel: null, // bookingId
+    logout: false,
   });
 
-  const isAuthed = useMemo(() => !!token, [token]);
+  const isAuthed = useMemo(() => !!profile, [profile]);
   const isAdmin = useMemo(() => profile?.role === "ADMIN", [profile]);
+
   function notify(msg, tone = "info") {
     setToast({ msg, tone });
   }
 
+  // shared auth error handler
   const onAuthError = () => {
-    clearToken();
-    setTokenState("");
     setProfile(null);
     setIncoming([]);
     setMine([]);
@@ -222,7 +229,9 @@ export default function App() {
     setBusy((b) => ({ ...b, cars: true }));
     try {
       const datesOk = isValidDateRange(startDate, endDate);
-      const qs = datesOk ? `?from=${encodeURIComponent(startDate)}&to=${encodeURIComponent(endDate)}` : "";
+      const qs = datesOk
+        ? `?from=${encodeURIComponent(startDate)}&to=${encodeURIComponent(endDate)}`
+        : "";
       const data = await apiFetch(`/cars/${qs}`);
       setCars(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -233,27 +242,27 @@ export default function App() {
   }
 
   async function refreshProfile() {
-    if (!token) {
-      setProfile(null);
-      return;
-    }
     setBusy((b) => ({ ...b, profile: true }));
     try {
-      const data = await apiFetch("/profile/me", { token, onAuthError });
+      const data = await apiFetch("/profile/me", { onAuthError });
       setProfile(data);
+    } catch (e) {
+      // If not logged in, /profile/me will 401 -> onAuthError already ran
+      // but we don't want to show a scary toast every page load.
+      setProfile(null);
     } finally {
       setBusy((b) => ({ ...b, profile: false }));
     }
   }
 
   async function refreshIncoming() {
-    if (!token) {
+    if (!isAuthed) {
       setIncoming([]);
       return;
     }
     setBusy((b) => ({ ...b, incoming: true }));
     try {
-      const data = await apiFetch("/bookings/incoming", { token, onAuthError });
+      const data = await apiFetch("/bookings/incoming", { onAuthError });
       setIncoming(Array.isArray(data) ? data : []);
     } finally {
       setBusy((b) => ({ ...b, incoming: false }));
@@ -261,13 +270,13 @@ export default function App() {
   }
 
   async function refreshMine() {
-    if (!token) {
+    if (!isAuthed) {
       setMine([]);
       return;
     }
     setBusy((b) => ({ ...b, mine: true }));
     try {
-      const data = await apiFetch("/bookings/mine", { token, onAuthError });
+      const data = await apiFetch("/bookings/mine", { onAuthError });
       setMine(Array.isArray(data) ? data : []);
     } catch (e) {
       notify(e.message, "bad");
@@ -276,18 +285,20 @@ export default function App() {
     }
   }
 
+  // initial
   useEffect(() => {
     refreshCars().catch(() => {});
+    refreshProfile().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // after auth is established (profile loaded)
   useEffect(() => {
-    if (!token) return;
-    refreshProfile().catch(() => {});
+    if (!isAuthed) return;
     refreshIncoming().catch(() => {});
     refreshMine().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [isAuthed]);
 
   /* -----------------------------
      Actions
@@ -310,13 +321,14 @@ export default function App() {
         notify("Registered ✅ Now verify your email using the token.", "ok");
         setActive("Verify Email");
       } else {
-        const data = await apiFetch("/auth/login", {
+        await apiFetch("/auth/login", {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
-        saveToken(data.access_token);
-        setTokenState(data.access_token);
-        notify("Logged in ✅", "ok");
+        notify("Logged in ✅ (cookie session)", "ok");
+        await refreshProfile();
+        await refreshIncoming();
+        await refreshMine();
         setActive("Profile");
       }
       await refreshCars();
@@ -344,12 +356,10 @@ export default function App() {
   async function handleLoginAfterVerify() {
     setBusy((b) => ({ ...b, auth: true }));
     try {
-      const data = await apiFetch("/auth/login", {
+      await apiFetch("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      saveToken(data.access_token);
-      setTokenState(data.access_token);
       notify("Logged in ✅", "ok");
       await refreshProfile();
       await refreshIncoming();
@@ -362,14 +372,20 @@ export default function App() {
     }
   }
 
-  function logout() {
-    clearToken();
-    setTokenState("");
-    setProfile(null);
-    setIncoming([]);
-    setMine([]);
-    notify("Logged out.", "info");
-    setActive("Marketplace");
+  async function logout() {
+    setBusy((b) => ({ ...b, logout: true }));
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch {
+      // even if logout fails, clear local state
+    } finally {
+      setProfile(null);
+      setIncoming([]);
+      setMine([]);
+      notify("Logged out.", "info");
+      setActive("Marketplace");
+      setBusy((b) => ({ ...b, logout: false }));
+    }
   }
 
   async function submitLicense(e) {
@@ -378,7 +394,6 @@ export default function App() {
     try {
       await apiFetch("/profile/license", {
         method: "POST",
-        token,
         onAuthError,
         body: JSON.stringify({
           license_number: licenseNumber,
@@ -400,7 +415,10 @@ export default function App() {
     setBusy((b) => ({ ...b, admin: true }));
     try {
       const userId = Number(adminVerifyUserId);
-      await apiFetch(`/profile/license/${userId}/verify`, { method: "POST", token, onAuthError });
+      await apiFetch(`/profile/license/${userId}/verify`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Admin: verified license for user ${userId} ✅`, "ok");
       await refreshProfile();
     } catch (err) {
@@ -416,7 +434,6 @@ export default function App() {
     try {
       await apiFetch("/cars/", {
         method: "POST",
-        token,
         onAuthError,
         body: JSON.stringify({
           make,
@@ -444,7 +461,6 @@ export default function App() {
 
       const data = await apiFetch(`/bookings/${carId}`, {
         method: "POST",
-        token,
         onAuthError,
         body: JSON.stringify({ start_date: startDate, end_date: endDate }),
       });
@@ -463,7 +479,10 @@ export default function App() {
   async function approveBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/approve`, { method: "POST", token, onAuthError });
+      const data = await apiFetch(`/bookings/${bookingId}/approve`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Approved booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -478,7 +497,10 @@ export default function App() {
   async function rejectBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/reject`, { method: "POST", token, onAuthError });
+      const data = await apiFetch(`/bookings/${bookingId}/reject`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Rejected booking ✅ (${data.id})`, "ok");
       await refreshIncoming();
       await refreshMine();
@@ -492,7 +514,10 @@ export default function App() {
   async function cancelBooking(bookingId) {
     setBusy((b) => ({ ...b, cancel: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/cancel`, { method: "POST", token, onAuthError });
+      const data = await apiFetch(`/bookings/${bookingId}/cancel`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Cancelled booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -564,7 +589,11 @@ export default function App() {
 
   return (
     <div className="appShell">
-      <Toast tone={toast.tone} message={toast.msg} onClose={() => setToast({ tone: "info", msg: "" })} />
+      <Toast
+        tone={toast.tone}
+        message={toast.msg}
+        onClose={() => setToast({ tone: "info", msg: "" })}
+      />
 
       <aside className="sidebar">
         <div className="brand">
@@ -578,7 +607,7 @@ export default function App() {
         <div className="statusStrip">
           <div className="statusRow">
             <span>Auth</span>
-            {isAuthed ? <Badge tone="ok">Token</Badge> : <Badge tone="bad">No token</Badge>}
+            {isAuthed ? <Badge tone="ok">Cookie session</Badge> : <Badge tone="bad">Logged out</Badge>}
           </div>
 
           <div className="statusRow">
@@ -624,8 +653,9 @@ export default function App() {
           <div className="tiny">
             Docs: <span className="mono">/docs</span>
           </div>
+
           {isAuthed ? (
-            <Button variant="danger" onClick={logout}>
+            <Button variant="danger" onClick={logout} loading={busy.logout}>
               Logout
             </Button>
           ) : (
@@ -648,7 +678,6 @@ export default function App() {
             <Button
               variant="secondary"
               onClick={() => refreshProfile().catch((e) => notify(e.message, "bad"))}
-              disabled={!isAuthed}
               loading={busy.profile}
             >
               Refresh Profile
@@ -679,18 +708,30 @@ export default function App() {
             subtitle="Pick dates to see only cars available for those dates. Booking requires email + licence verification."
             right={
               <div className="gates">
-                <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
+                <Badge tone={gates.canBook ? "ok" : "warn"}>
+                  {gates.canBook ? "Can book" : "Booking locked"}
+                </Badge>
               </div>
             }
           >
             <div className="row" style={{ marginBottom: 12 }}>
               <label className="field" style={{ flex: 1 }}>
                 <span className="fieldLabel">From</span>
-                <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                <input
+                  className="input"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
               </label>
               <label className="field" style={{ flex: 1 }}>
                 <span className="fieldLabel">To</span>
-                <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                <input
+                  className="input"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
               </label>
 
               <Button variant="secondary" onClick={refreshCars} disabled={!datesOk} loading={busy.cars}>
@@ -727,7 +768,11 @@ export default function App() {
                       </div>
 
                       <div className="tileActions">
-                        <Button onClick={() => requestBooking(c.id)} disabled={!canRequest} loading={busy.booking === c.id}>
+                        <Button
+                          onClick={() => requestBooking(c.id)}
+                          disabled={!canRequest}
+                          loading={busy.booking === c.id}
+                        >
                           Request Booking
                         </Button>
 
@@ -737,7 +782,8 @@ export default function App() {
                           <div className="tiny muted">Pick a valid date range first.</div>
                         ) : (
                           <div className="tiny muted">
-                            Requested dates: <span className="mono">{startDate}</span> → <span className="mono">{endDate}</span>
+                            Requested dates: <span className="mono">{startDate}</span> →{" "}
+                            <span className="mono">{endDate}</span>
                           </div>
                         )}
                       </div>
@@ -752,19 +798,38 @@ export default function App() {
         {/* AUTH */}
         {active === "Auth" && (
           <div className="twoCol">
-            <Card title="Register / Login" subtitle="JWT auth + email verification gate.">
+            <Card title="Register / Login" subtitle="Cookie auth (HttpOnly JWT) + CSRF protection.">
               <div className="segmented">
-                <button className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"} onClick={() => setAuthMode("register")} type="button">
+                <button
+                  className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"}
+                  onClick={() => setAuthMode("register")}
+                  type="button"
+                >
                   Register
                 </button>
-                <button className={authMode === "login" ? "segBtn segBtnActive" : "segBtn"} onClick={() => setAuthMode("login")} type="button">
+                <button
+                  className={authMode === "login" ? "segBtn segBtnActive" : "segBtn"}
+                  onClick={() => setAuthMode("login")}
+                  type="button"
+                >
                   Login
                 </button>
               </div>
 
               <form className="form" onSubmit={handleAuth}>
-                <Field label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@carhop.com" />
-                <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                <Field
+                  label="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@carhop.com"
+                />
+                <Field
+                  label="Password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
 
                 {authMode === "register" ? (
                   <>
@@ -781,18 +846,28 @@ export default function App() {
               <div className="divider" />
               <div className="inline">
                 <span className="muted">Status:</span>{" "}
-                {isAuthed ? <Badge tone="ok">Token stored</Badge> : <Badge tone="bad">Not logged in</Badge>}
+                {isAuthed ? <Badge tone="ok">Logged in</Badge> : <Badge tone="bad">Logged out</Badge>}
               </div>
             </Card>
 
             <Card title="Email Verification" subtitle="MVP mode: register returns a verification token (simulated email).">
               <div className="form">
-                <Field label="Verification token" value={verificationToken} onChange={(e) => setVerificationToken(e.target.value)} placeholder="paste token here" />
+                <Field
+                  label="Verification token"
+                  value={verificationToken}
+                  onChange={(e) => setVerificationToken(e.target.value)}
+                  placeholder="paste token here"
+                />
                 <div className="row">
                   <Button onClick={handleVerifyEmail} loading={busy.verify} disabled={!verificationToken}>
                     Verify Email
                   </Button>
-                  <Button variant="secondary" onClick={handleLoginAfterVerify} loading={busy.auth} disabled={!verificationToken}>
+                  <Button
+                    variant="secondary"
+                    onClick={handleLoginAfterVerify}
+                    loading={busy.auth}
+                    disabled={!verificationToken}
+                  >
                     Login after verify
                   </Button>
                 </div>
@@ -805,7 +880,12 @@ export default function App() {
         {active === "Verify Email" && (
           <Card title="Verify Email" subtitle="Paste the token returned on registration.">
             <div className="form" style={{ maxWidth: 520 }}>
-              <Field label="Verification token" value={verificationToken} onChange={(e) => setVerificationToken(e.target.value)} placeholder="paste token here" />
+              <Field
+                label="Verification token"
+                value={verificationToken}
+                onChange={(e) => setVerificationToken(e.target.value)}
+                placeholder="paste token here"
+              />
               <div className="row">
                 <Button onClick={handleVerifyEmail} loading={busy.verify} disabled={!verificationToken}>
                   Verify
@@ -825,8 +905,12 @@ export default function App() {
             subtitle="Shows your onboarding status and platform gates."
             right={
               <div className="gates">
-                <Badge tone={gates.canListCars ? "ok" : "warn"}>{gates.canListCars ? "Can list cars" : "Listing locked"}</Badge>
-                <Badge tone={gates.canBook ? "ok" : "warn"}>{gates.canBook ? "Can book" : "Booking locked"}</Badge>
+                <Badge tone={gates.canListCars ? "ok" : "warn"}>
+                  {gates.canListCars ? "Can list cars" : "Listing locked"}
+                </Badge>
+                <Badge tone={gates.canBook ? "ok" : "warn"}>
+                  {gates.canBook ? "Can book" : "Booking locked"}
+                </Badge>
               </div>
             }
           >
@@ -851,6 +935,13 @@ export default function App() {
                 <div className="kv">
                   <div className="k">DoB</div>
                   <div className="v mono">{profile.date_of_birth}</div>
+                </div>
+
+                <div className="kv">
+                  <div className="k">Role</div>
+                  <div className="v">
+                    <Badge tone={profile.role === "ADMIN" ? "ok" : "neutral"}>{profile.role}</Badge>
+                  </div>
                 </div>
 
                 <div className="kv">
@@ -879,11 +970,9 @@ export default function App() {
               <div className="hintBox">
                 <div className="hintTitle">Next steps</div>
                 <ul className="hintList">
+                  <li>If email isn’t verified: go to <b>Verify Email</b>.</li>
                   <li>
-                    If email isn’t verified: go to <b>Verify Email</b>.
-                  </li>
-                  <li>
-                    If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin (user #1) or via DB.
+                    If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin.
                   </li>
                 </ul>
               </div>
@@ -896,9 +985,24 @@ export default function App() {
           <div className="twoCol">
             <Card title="Driver License" subtitle="Submit or update licence details (admin verification required).">
               <form className="form" onSubmit={submitLicense}>
-                <Field label="Licence number" value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="UK-1234567" />
-                <Field label="Issuing country" value={issuingCountry} onChange={(e) => setIssuingCountry(e.target.value)} placeholder="UK" />
-                <Field label="Expiry date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} placeholder="YYYY-MM-DD" />
+                <Field
+                  label="Licence number"
+                  value={licenseNumber}
+                  onChange={(e) => setLicenseNumber(e.target.value)}
+                  placeholder="UK-1234567"
+                />
+                <Field
+                  label="Issuing country"
+                  value={issuingCountry}
+                  onChange={(e) => setIssuingCountry(e.target.value)}
+                  placeholder="UK"
+                />
+                <Field
+                  label="Expiry date"
+                  value={expiryDate}
+                  onChange={(e) => setExpiryDate(e.target.value)}
+                  placeholder="YYYY-MM-DD"
+                />
                 <Button type="submit" disabled={!isAuthed} loading={busy.license}>
                   Submit / Update
                 </Button>
@@ -906,13 +1010,19 @@ export default function App() {
               </form>
             </Card>
 
-            <Card title="Admin: Verify Licence" subtitle="MVP rule: user #1 is admin.">
+            <Card title="Admin: Verify Licence" subtitle="Now role-based (ADMIN).">
               <div className="form">
-                <Field label="User ID to verify" type="number" min="1" value={adminVerifyUserId} onChange={(e) => setAdminVerifyUserId(e.target.value)} />
+                <Field
+                  label="User ID to verify"
+                  type="number"
+                  min="1"
+                  value={adminVerifyUserId}
+                  onChange={(e) => setAdminVerifyUserId(e.target.value)}
+                />
                 <Button onClick={adminVerifyLicense} disabled={!isAuthed || !isAdmin} loading={busy.admin}>
                   Verify Licence
                 </Button>
-                {!isAdmin ? <div className="tiny muted">Login as user #1 to use admin verify (or verify via DB).</div> : null}
+                {!isAdmin ? <div className="tiny muted">Login as an ADMIN user to verify.</div> : null}
               </div>
             </Card>
           </div>
@@ -930,7 +1040,13 @@ export default function App() {
                 <Field label="Make" value={make} onChange={(e) => setMake(e.target.value)} placeholder="Toyota" />
                 <Field label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Corolla" />
                 <Field label="Year" type="number" value={year} onChange={(e) => setYear(e.target.value)} placeholder="2020" />
-                <Field label="Daily price (£)" type="number" value={dailyPrice} onChange={(e) => setDailyPrice(e.target.value)} placeholder="50" />
+                <Field
+                  label="Daily price (£)"
+                  type="number"
+                  value={dailyPrice}
+                  onChange={(e) => setDailyPrice(e.target.value)}
+                  placeholder="50"
+                />
               </div>
 
               <Button type="submit" disabled={!gates.canListCars} loading={busy.car}>
@@ -964,7 +1080,17 @@ export default function App() {
 
                       <div className="rowCardSub">
                         Status:{" "}
-                        <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : b.status === "REJECTED" ? "bad" : "warn"}>
+                        <Badge
+                          tone={
+                            b.status === "PENDING"
+                              ? "warn"
+                              : b.status === "APPROVED"
+                              ? "ok"
+                              : b.status === "REJECTED"
+                              ? "bad"
+                              : "warn"
+                          }
+                        >
                           {b.status}
                         </Badge>
                       </div>
@@ -1027,7 +1153,17 @@ export default function App() {
 
                         <div className="rowCardSub">
                           Status:{" "}
-                          <Badge tone={b.status === "PENDING" ? "warn" : b.status === "APPROVED" ? "ok" : b.status === "REJECTED" ? "bad" : "warn"}>
+                          <Badge
+                            tone={
+                              b.status === "PENDING"
+                                ? "warn"
+                                : b.status === "APPROVED"
+                                ? "ok"
+                                : b.status === "REJECTED"
+                                ? "bad"
+                                : "warn"
+                            }
+                          >
                             {b.status}
                           </Badge>
                         </div>
@@ -1054,18 +1190,24 @@ export default function App() {
 
         {/* ADMIN */}
         {active === "Admin" && isAdmin && (
-          <Card title="Admin Panel" subtitle="Minimal admin surface for MVP demo.">
+          <Card title="Admin Panel" subtitle="Minimal admin surface for demo.">
             <div className="hintBox">
               <div className="hintTitle">What this demonstrates</div>
               <ul className="hintList">
-                <li>Role-gated endpoint usage (admin only).</li>
+                <li>Role-gated endpoint usage (ADMIN only).</li>
                 <li>Manual verification workflow (licence).</li>
                 <li>Unlocking customer capabilities after trust checks.</li>
               </ul>
             </div>
 
             <div className="form" style={{ maxWidth: 520 }}>
-              <Field label="User ID to verify licence" type="number" min="1" value={adminVerifyUserId} onChange={(e) => setAdminVerifyUserId(e.target.value)} />
+              <Field
+                label="User ID to verify licence"
+                type="number"
+                min="1"
+                value={adminVerifyUserId}
+                onChange={(e) => setAdminVerifyUserId(e.target.value)}
+              />
               <Button onClick={adminVerifyLicense} loading={busy.admin}>
                 Verify Licence
               </Button>
