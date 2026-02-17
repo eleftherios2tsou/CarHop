@@ -51,6 +51,9 @@ body{
   display:flex;
   flex-direction: column;
   gap: 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
 .main{
@@ -511,6 +514,28 @@ body{
   font-size: 18px;
   line-height: 1;
 }
+.tileMedia{
+  border: 1px solid var(--border);
+  border-radius: var(--radius2);
+  overflow: hidden;
+  background: var(--surface2);
+  box-shadow: var(--shadow2);
+}
+
+.tileImg{
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  display: block;
+}
+
+.tileImgPlaceholder{
+  height: 160px;
+  display: grid;
+  place-items: center;
+  color: var(--muted2);
+  font-size: 13px;
+}
 /* Responsive */
 @media (max-width: 980px){
   .appShell{ grid-template-columns: 1fr; }
@@ -520,7 +545,7 @@ body{
   .grid{ grid-template-columns: 1fr; }
   .profileGrid{ grid-template-columns: 1fr; }
   .topbar{ flex-direction: column; }
-  .topbarRight{ justify-content: flex-start; }
+
   .grid3{ grid-template-columns: 1fr; }
   .tileDetails{ grid-template-columns: 1fr; }
   .photoGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }

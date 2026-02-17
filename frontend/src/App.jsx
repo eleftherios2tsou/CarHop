@@ -216,15 +216,21 @@ export default function App() {
   const [model, setModel] = useState("Corolla");
   const [year, setYear] = useState(2020);
   const [dailyPrice, setDailyPrice] = useState(50);
+
+  // NOTE: legacy helpers you had; we keep them so the file compiles
+  // but the UI below uses `photos` (dataUrl objects) not `carPhotos`.
+  const [carPhotos, setCarPhotos] = useState([]); // [{ file, url, name }]
+
   const [city, setCity] = useState("Bristol");
   const [postcode, setPostcode] = useState("BS1");
-  const [transmission, setTransmission] = useState("AUTOMATIC"); 
-  const [fuelType, setFuelType] = useState("PETROL"); 
+  const [transmission, setTransmission] = useState("AUTOMATIC");
+  const [fuelType, setFuelType] = useState("PETROL");
   const [seats, setSeats] = useState(5);
   const [doors, setDoors] = useState(5);
   const [mileage, setMileage] = useState(45000);
   const [color, setColor] = useState("Grey");
-  const [photos, setPhotos] = useState([]); 
+  const [photos, setPhotos] = useState([]); // [{ id, name, type, dataUrl }]
+
   const [features, setFeatures] = useState({
     ac: true,
     bluetooth: true,
@@ -232,9 +238,11 @@ export default function App() {
     gps: false,
     heatedSeats: false,
   });
+
   const [description, setDescription] = useState(
     "Clean, reliable, easy to drive. Great for city + weekend trips."
   );
+
   // bookings
   const [incoming, setIncoming] = useState([]);
   const [mine, setMine] = useState([]);
@@ -267,6 +275,51 @@ export default function App() {
 
   function notify(msg, tone = "info") {
     setToast({ msg, tone });
+  }
+
+  // ---- legacy photo helpers (kept; not used by the current UI) ----
+  function addCarPhotosFromInput(fileList) {
+    const files = Array.from(fileList || []);
+    const images = files.filter((f) => f.type?.startsWith("image/"));
+
+    const next = images.map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+      name: file.name,
+    }));
+
+    setCarPhotos((prev) => [...prev, ...next]);
+  }
+
+  function removeCarPhoto(index) {
+    setCarPhotos((prev) => {
+      const item = prev[index];
+      if (item?.url) URL.revokeObjectURL(item.url);
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function setCoverPhoto(index) {
+    setCarPhotos((prev) => {
+      if (index <= 0 || index >= prev.length) return prev;
+      const copy = [...prev];
+      const [picked] = copy.splice(index, 1);
+      copy.unshift(picked);
+      return copy;
+    });
+  }
+
+  function clearCarPhotos() {
+    setCarPhotos((prev) => {
+      prev.forEach((p) => p?.url && URL.revokeObjectURL(p.url));
+      return [];
+    });
+  }
+  // ---------------------------------------------------------------
+
+  // Marketplace cover resolver
+  function carCoverUrl(c) {
+    return c?.photo_urls?.[0] || c?.photos?.[0] || c?.image_url || c?.cover_url || "";
   }
 
   const onAuthError = () => {
@@ -303,6 +356,7 @@ export default function App() {
       setBusy((b) => ({ ...b, cars: false }));
     }
   }
+
   function uid() {
     return Math.random().toString(16).slice(2) + Date.now().toString(16);
   }
@@ -352,7 +406,7 @@ export default function App() {
       }
 
       return data;
-    } catch (e) {
+    } catch {
       setProfile(null);
       return null;
     } finally {
@@ -410,8 +464,6 @@ export default function App() {
       refreshIncoming().catch(() => {});
     } else if (active === "My Bookings") {
       refreshMine().catch(() => {});
-    } else if (active === "Admin") {
-      // Nothing mandatory here right now
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
@@ -530,7 +582,6 @@ export default function App() {
       });
       notify("License submitted ✅ (awaiting verification)", "ok");
       await refreshProfile();
-      // stay on Profile (license now lives there)
       setActive("Profile");
     } catch (err) {
       notify(`License error: ${err.message}`, "bad");
@@ -552,20 +603,44 @@ export default function App() {
       setBusy((b) => ({ ...b, admin: false }));
     }
   }
+
+  // ✅ COMPLETED createCar: includes your new UI fields + clears photo picker state
   async function createCar(e) {
     e.preventDefault();
     setBusy((b) => ({ ...b, car: true }));
+
     try {
+      // UI-only photos: we can’t persist them yet, but we can show a cover preview in Marketplace
+      const coverPreview = photos?.[0]?.dataUrl || null;
+
+      const payload = {
+        make,
+        model,
+        year: Number(year),
+        daily_price: Number(dailyPrice),
+        availability_units: 1,
+
+        // extra fields (backend may ignore until you add them; harmless for now if backend allows extra keys)
+        city,
+        postcode,
+        transmission,
+        fuel_type: fuelType,
+        seats: seats === "" || seats === null ? null : Number(seats),
+        doors: doors === "" || doors === null ? null : Number(doors),
+        mileage: mileage === "" || mileage === null ? null : Number(mileage),
+        color,
+        features,
+        description,
+
+        // UI-only (temporary): if your backend rejects unknown fields, remove this line.
+        // Keeping it helps Marketplace show a cover until storage is implemented.
+        cover_url: coverPreview,
+      };
+
       await apiFetch("/cars/", {
         method: "POST",
         onAuthError,
-        body: JSON.stringify({
-          make,
-          model,
-          year: Number(year),
-          daily_price: Number(dailyPrice),
-          availability_units: 1,
-        }),
+        body: JSON.stringify(payload),
       });
 
       notify("Car listing created ✅", "ok");
@@ -581,7 +656,6 @@ export default function App() {
       setBusy((b) => ({ ...b, car: false }));
     }
   }
-
 
   async function requestBooking(carId) {
     setBusy((b) => ({ ...b, booking: carId }));
@@ -733,8 +807,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Removed the debug/status strip (Auth/CSRF/Email/License) */}
-
         <nav className="nav">
           {navItems.map((it) => (
             <button
@@ -771,8 +843,6 @@ export default function App() {
             <h1 className="pageTitle">{active}</h1>
             <p className="pageSub">The new Era of commuting</p>
           </div>
-
-          {/* Removed the top-right refresh buttons */}
         </header>
 
         {/* MARKETPLACE */}
@@ -830,6 +900,7 @@ export default function App() {
               <div className="grid">
                 {cars.map((c) => {
                   const canRequest = gates.canBook && datesOk;
+                  const cover = carCoverUrl(c);
 
                   return (
                     <div className="tile" key={c.id}>
@@ -842,17 +913,44 @@ export default function App() {
                         </Badge>
                       </div>
 
+                      {/* Cover (UI-first: uses cover_url if backend returns it, otherwise empty) */}
+                      <div className="tileMedia">
+                        {cover ? (
+                          <img
+                            className="tileImg"
+                            src={cover}
+                            alt={`${c.make} ${c.model}`}
+                          />
+                        ) : (
+                          <div className="tileImgPlaceholder">No photo</div>
+                        )}
+                      </div>
+
                       <div className="tileMeta">
                         <div className="mono">{c.year}</div>
                         <div className="mono">£{c.daily_price}/day</div>
                         <div className="mono">owner #{c.owner_id}</div>
                       </div>
+
                       <div className="tileDetails">
-                        <div className="detail"><span className="muted">Transmission</span> <span className="mono">{c.transmission || "—"}</span></div>
-                        <div className="detail"><span className="muted">Fuel</span> <span className="mono">{c.fuel_type || "—"}</span></div>
-                        <div className="detail"><span className="muted">Seats</span> <span className="mono">{c.seats ?? "—"}</span></div>
-                        <div className="detail"><span className="muted">Location</span> <span className="mono">{c.city || "—"}</span></div>
+                        <div className="detail">
+                          <span className="muted">Transmission</span>{" "}
+                          <span className="mono">{c.transmission || "—"}</span>
+                        </div>
+                        <div className="detail">
+                          <span className="muted">Fuel</span>{" "}
+                          <span className="mono">{c.fuel_type || "—"}</span>
+                        </div>
+                        <div className="detail">
+                          <span className="muted">Seats</span>{" "}
+                          <span className="mono">{c.seats ?? "—"}</span>
+                        </div>
+                        <div className="detail">
+                          <span className="muted">Location</span>{" "}
+                          <span className="mono">{c.city || "—"}</span>
+                        </div>
                       </div>
+
                       <div className="tileActions">
                         <Button
                           onClick={() => requestBooking(c.id)}
@@ -1177,7 +1275,6 @@ export default function App() {
         )}
 
         {/* LIST CAR */}
-
         {active === "List Car" && (
           <Card
             title="List a Car"
@@ -1267,29 +1364,20 @@ export default function App() {
                   );
                 })}
               </div>
+
               <div className="sectionTitle">Photos</div>
               <div className="photoBox">
                 <div className="row" style={{ justifyContent: "space-between" }}>
-                  <div className="tiny muted">
-                    UI-only for now. Add up to 8 photos.
-                  </div>
+                  <div className="tiny muted">UI-only for now. Add up to 8 photos.</div>
 
                   <label className="btn btnSecondary" style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
                     <span>Upload</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      style={{ display: "none" }}
-                      onChange={onPickPhotos}
-                    />
+                    <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={onPickPhotos} />
                   </label>
                 </div>
 
                 {photos.length === 0 ? (
-                  <div className="photoEmpty">
-                    No photos yet. Add at least 1 for a realistic listing.
-                  </div>
+                  <div className="photoEmpty">No photos yet. Add at least 1 for a realistic listing.</div>
                 ) : (
                   <div className="photoGrid">
                     {photos.map((p) => (
@@ -1313,7 +1401,6 @@ export default function App() {
                 label="Description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                
                 rows={4}
               />
 
@@ -1321,9 +1408,15 @@ export default function App() {
                 <div className="hintTitle">UI-first note</div>
                 <ul className="hintList">
                   <li>
-                    Right now only <span className="mono">make/model/year/daily_price</span> are saved to the backend.
+                    Right now your backend may only save{" "}
+                    <span className="mono">make/model/year/daily_price</span> unless you’ve updated it.
                   </li>
-                  <li>Next step: add these fields to the backend Car model + migrations + API schemas.</li>
+                  <li>
+                    Next step: add these fields to the backend Car model + migrations + API schemas.
+                  </li>
+                  <li>
+                    Next next step: real photo storage (S3 / MinIO) + photo URLs returned by the API.
+                  </li>
                 </ul>
               </div>
 
@@ -1335,7 +1428,6 @@ export default function App() {
             </form>
           </Card>
         )}
-
 
         {/* INCOMING */}
         {active === "Incoming" && (
@@ -1350,7 +1442,10 @@ export default function App() {
                   <div className="rowCard" key={b.id}>
                     <div className="rowCardMain">
                       <div className="rowCardTitle">
-                        Booking #{b.id} <span className="muted">· car #{b.car_id} · renter #{b.renter_id}</span>
+                        Booking #{b.id}{" "}
+                        <span className="muted">
+                          · car #{b.car_id} · renter #{b.renter_id}
+                        </span>
                       </div>
 
                       <div className="rowCardSub">
