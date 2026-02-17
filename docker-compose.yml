@@ -21,7 +21,23 @@ services:
       context: ./backend
     container_name: carhop_api
     environment:
+      ENVIRONMENT: dev
       DATABASE_URL: postgresql+psycopg://carhop:carhop@db:5432/carhop
+
+      JWT_SECRET_KEY: "dev-secret-change-me"
+      JWT_ALGORITHM: "HS256"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+
+      REFRESH_TOKEN_PEPPER: "dev-refresh-pepper-change-me"
+
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: "lax"
+      COOKIE_DOMAIN: ""
+
+      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+
+      SQL_ECHO: "false"
+
     ports:
       - "8000:8000"
     volumes:

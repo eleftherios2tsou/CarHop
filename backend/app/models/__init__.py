@@ -4,3 +4,4 @@ from .car import CarListing
 from .booking import BookingRequest
 from .email_verification import EmailVerificationToken
 from .license import DriverLicense
+from .refresh_token import RefreshToken

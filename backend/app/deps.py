@@ -1,4 +1,4 @@
-#backend/app/deps.py
+# backend/app/deps.py
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -45,5 +45,10 @@ def get_current_verified_user(
     return current_user
 
 
-def csrf_protect(request: Request):
+def csrf_protect(request: Request) -> None:
+    """
+    Dependency to enforce CSRF protection on state-changing requests.
+    Use it via: dependencies=[Depends(csrf_protect)]
+    """
     require_csrf(request)
+    return None

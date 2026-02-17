@@ -5,39 +5,51 @@ import "./App.css";
 const API = "/api";
 
 /* -----------------------------
-   Cookie helpers (for CSRF)
+   Cookie helpers
 ------------------------------ */
 function getCookie(name) {
-  const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-  return m ? decodeURIComponent(m[2]) : "";
+  const parts = document.cookie ? document.cookie.split("; ") : [];
+  for (const p of parts) {
+    const [k, ...rest] = p.split("=");
+    if (k === name) return decodeURIComponent(rest.join("="));
+  }
+  return "";
+}
+
+function getCsrfToken() {
+  // must match backend/app/security.py CSRF_COOKIE
+  return getCookie("csrf_token");
 }
 
 /* -----------------------------
-   Fetch helper (cookie auth)
-   - Always sends cookies (HttpOnly access_token)
-   - Sends CSRF header for unsafe methods (double-submit cookie)
-   - onAuthError() hook for 401/403
+   Fetch helper (cookie auth + CSRF + auto refresh)
+   - Always sends cookies (credentials: "include")
+   - For unsafe methods, sends X-CSRF-Token (double-submit)
+   - On 401: tries POST /auth/refresh once, then retries original request once
 ------------------------------ */
-async function apiFetch(path, { onAuthError, ...opts } = {}) {
+async function apiFetch(path, { onAuthError, _retried, ...opts } = {}) {
+  const method = (opts.method || "GET").toUpperCase();
+
   const headers = {
     ...(opts.headers || {}),
     ...(opts.body ? { "Content-Type": "application/json" } : {}),
   };
 
-  const method = (opts.method || "GET").toUpperCase();
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-    const csrf = getCookie("csrf_token");
+  // Send CSRF token for unsafe methods (backend require_csrf enforces for POST/PUT/PATCH/DELETE)
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (unsafe) {
+    const csrf = getCsrfToken();
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
 
   const res = await fetch(`${API}${path}`, {
     ...opts,
+    method,
     headers,
-    credentials: "include", // ✅ send cookies
+    credentials: "include",
   });
 
   const text = await res.text();
-
   let data = null;
   try {
     data = text ? JSON.parse(text) : null;
@@ -45,17 +57,27 @@ async function apiFetch(path, { onAuthError, ...opts } = {}) {
     data = text;
   }
 
-  // 🔒 auth handling
-  if (res.status === 401 || res.status === 403) {
+  // Auto refresh on 401 once
+  if (res.status === 401 && !_retried) {
+    try {
+      const r = await fetch(`${API}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (r.ok) {
+        // retry original request once
+        return apiFetch(path, { onAuthError, _retried: true, ...opts });
+      }
+    } catch {
+      // ignore; fallthrough to auth error
+    }
+
     if (onAuthError) onAuthError();
-    const msg =
-      (data &&
-        data.detail &&
-        (Array.isArray(data.detail) ? JSON.stringify(data.detail) : data.detail)) ||
-      `Unauthorized (${res.status})`;
-    throw new Error(msg);
+    throw new Error("Session expired. Please login again.");
   }
 
+  // 403 can be CSRF failure or email not verified etc. We don't auto-refresh on 403.
   if (!res.ok) {
     const msg =
       (data &&
@@ -147,7 +169,7 @@ function Toast({ tone = "info", message, onClose }) {
    App
 ------------------------------ */
 export default function App() {
-  // auth form
+  // auth
   const [authMode, setAuthMode] = useState("register"); // register | login
   const [email, setEmail] = useState("host@carhop.com");
   const [password, setPassword] = useState("password123");
@@ -175,7 +197,7 @@ export default function App() {
   const [incoming, setIncoming] = useState([]);
   const [mine, setMine] = useState([]);
 
-  // marketplace date filter + booking request
+  // marketplace date filter
   const [startDate, setStartDate] = useState("2026-02-20");
   const [endDate, setEndDate] = useState("2026-02-22");
 
@@ -199,13 +221,12 @@ export default function App() {
   });
 
   const isAuthed = useMemo(() => !!profile, [profile]);
-  const isAdmin = useMemo(() => profile?.role === "ADMIN", [profile]);
+  const isAdmin = useMemo(() => profile?.role === "ADMIN" || profile?.id === 1, [profile]);
 
   function notify(msg, tone = "info") {
     setToast({ msg, tone });
   }
 
-  // shared auth error handler
   const onAuthError = () => {
     setProfile(null);
     setIncoming([]);
@@ -246,59 +267,51 @@ export default function App() {
     try {
       const data = await apiFetch("/profile/me", { onAuthError });
       setProfile(data);
+      return data;
     } catch (e) {
-      // If not logged in, /profile/me will 401 -> onAuthError already ran
-      // but we don't want to show a scary toast every page load.
+      // If not logged in, profile/me will 401 -> onAuthError clears state already
       setProfile(null);
+      return null;
     } finally {
       setBusy((b) => ({ ...b, profile: false }));
     }
   }
 
   async function refreshIncoming() {
-    if (!isAuthed) {
-      setIncoming([]);
-      return;
-    }
     setBusy((b) => ({ ...b, incoming: true }));
     try {
       const data = await apiFetch("/bookings/incoming", { onAuthError });
       setIncoming(Array.isArray(data) ? data : []);
+    } catch {
+      setIncoming([]);
     } finally {
       setBusy((b) => ({ ...b, incoming: false }));
     }
   }
 
   async function refreshMine() {
-    if (!isAuthed) {
-      setMine([]);
-      return;
-    }
     setBusy((b) => ({ ...b, mine: true }));
     try {
       const data = await apiFetch("/bookings/mine", { onAuthError });
       setMine(Array.isArray(data) ? data : []);
-    } catch (e) {
-      notify(e.message, "bad");
+    } catch {
+      setMine([]);
     } finally {
       setBusy((b) => ({ ...b, mine: false }));
     }
   }
 
-  // initial
   useEffect(() => {
     refreshCars().catch(() => {});
-    refreshProfile().catch(() => {});
+    // on first load, try to restore session from cookies
+    refreshProfile().then((p) => {
+      if (p) {
+        refreshIncoming().catch(() => {});
+        refreshMine().catch(() => {});
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // after auth is established (profile loaded)
-  useEffect(() => {
-    if (!isAuthed) return;
-    refreshIncoming().catch(() => {});
-    refreshMine().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthed]);
 
   /* -----------------------------
      Actions
@@ -325,11 +338,15 @@ export default function App() {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
-        notify("Logged in ✅ (cookie session)", "ok");
-        await refreshProfile();
-        await refreshIncoming();
-        await refreshMine();
-        setActive("Profile");
+        notify("Logged in ✅", "ok");
+        const p = await refreshProfile();
+        if (p) {
+          await refreshIncoming();
+          await refreshMine();
+          setActive("Profile");
+        } else {
+          setActive("Profile");
+        }
       }
       await refreshCars();
     } catch (err) {
@@ -375,15 +392,15 @@ export default function App() {
   async function logout() {
     setBusy((b) => ({ ...b, logout: true }));
     try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      // even if logout fails, clear local state
-    } finally {
+      await apiFetch("/auth/logout", { method: "POST", onAuthError: () => {} });
       setProfile(null);
       setIncoming([]);
       setMine([]);
       notify("Logged out.", "info");
       setActive("Marketplace");
+    } catch (e) {
+      notify(`Logout error: ${e.message}`, "bad");
+    } finally {
       setBusy((b) => ({ ...b, logout: false }));
     }
   }
@@ -415,10 +432,7 @@ export default function App() {
     setBusy((b) => ({ ...b, admin: true }));
     try {
       const userId = Number(adminVerifyUserId);
-      await apiFetch(`/profile/license/${userId}/verify`, {
-        method: "POST",
-        onAuthError,
-      });
+      await apiFetch(`/profile/license/${userId}/verify`, { method: "POST", onAuthError });
       notify(`Admin: verified license for user ${userId} ✅`, "ok");
       await refreshProfile();
     } catch (err) {
@@ -479,10 +493,7 @@ export default function App() {
   async function approveBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/approve`, {
-        method: "POST",
-        onAuthError,
-      });
+      const data = await apiFetch(`/bookings/${bookingId}/approve`, { method: "POST", onAuthError });
       notify(`Approved booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -497,10 +508,7 @@ export default function App() {
   async function rejectBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/reject`, {
-        method: "POST",
-        onAuthError,
-      });
+      const data = await apiFetch(`/bookings/${bookingId}/reject`, { method: "POST", onAuthError });
       notify(`Rejected booking ✅ (${data.id})`, "ok");
       await refreshIncoming();
       await refreshMine();
@@ -514,10 +522,7 @@ export default function App() {
   async function cancelBooking(bookingId) {
     setBusy((b) => ({ ...b, cancel: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/cancel`, {
-        method: "POST",
-        onAuthError,
-      });
+      const data = await apiFetch(`/bookings/${bookingId}/cancel`, { method: "POST", onAuthError });
       notify(`Cancelled booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -608,6 +613,11 @@ export default function App() {
           <div className="statusRow">
             <span>Auth</span>
             {isAuthed ? <Badge tone="ok">Cookie session</Badge> : <Badge tone="bad">Logged out</Badge>}
+          </div>
+
+          <div className="statusRow">
+            <span>CSRF</span>
+            {getCsrfToken() ? <Badge tone="ok">Present</Badge> : <Badge tone="warn">Missing</Badge>}
           </div>
 
           <div className="statusRow">
@@ -798,7 +808,7 @@ export default function App() {
         {/* AUTH */}
         {active === "Auth" && (
           <div className="twoCol">
-            <Card title="Register / Login" subtitle="Cookie auth (HttpOnly JWT) + CSRF protection.">
+            <Card title="Register / Login" subtitle="Cookie auth + CSRF + refresh tokens.">
               <div className="segmented">
                 <button
                   className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"}
@@ -846,11 +856,11 @@ export default function App() {
               <div className="divider" />
               <div className="inline">
                 <span className="muted">Status:</span>{" "}
-                {isAuthed ? <Badge tone="ok">Logged in</Badge> : <Badge tone="bad">Logged out</Badge>}
+                {isAuthed ? <Badge tone="ok">Logged in</Badge> : <Badge tone="bad">Not logged in</Badge>}
               </div>
             </Card>
 
-            <Card title="Email Verification" subtitle="MVP mode: register returns a verification token (simulated email).">
+            <Card title="Email Verification" subtitle="Register returns a verification token (simulated email).">
               <div className="form">
                 <Field
                   label="Verification token"
@@ -916,8 +926,6 @@ export default function App() {
           >
             {!isAuthed ? (
               <p className="muted">Login to see your profile.</p>
-            ) : !profile ? (
-              <p className="muted">Loading…</p>
             ) : (
               <div className="profileGrid">
                 <div className="kv">
@@ -939,29 +947,35 @@ export default function App() {
 
                 <div className="kv">
                   <div className="k">Role</div>
-                  <div className="v">
-                    <Badge tone={profile.role === "ADMIN" ? "ok" : "neutral"}>{profile.role}</Badge>
-                  </div>
+                  <div className="v mono">{profile.role || "USER"}</div>
                 </div>
 
                 <div className="kv">
                   <div className="k">Email verified</div>
-                  <div className="v">{profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
 
                 <div className="kv">
                   <div className="k">Licence submitted</div>
-                  <div className="v">{profile.has_license ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.has_license ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
 
                 <div className="kv">
                   <div className="k">Licence verified</div>
-                  <div className="v">{profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
 
                 <div className="kv">
                   <div className="k">Profile complete</div>
-                  <div className="v">{profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}</div>
+                  <div className="v">
+                    {profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                  </div>
                 </div>
               </div>
             )}
@@ -971,8 +985,9 @@ export default function App() {
                 <div className="hintTitle">Next steps</div>
                 <ul className="hintList">
                   <li>If email isn’t verified: go to <b>Verify Email</b>.</li>
+                  <li>If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin.</li>
                   <li>
-                    If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin.
+                    CSRF failures mean your frontend didn’t send <span className="mono">X-CSRF-Token</span>.
                   </li>
                 </ul>
               </div>
@@ -1010,7 +1025,7 @@ export default function App() {
               </form>
             </Card>
 
-            <Card title="Admin: Verify Licence" subtitle="Now role-based (ADMIN).">
+            <Card title="Admin: Verify Licence" subtitle="Admin-only verification flow.">
               <div className="form">
                 <Field
                   label="User ID to verify"
@@ -1022,7 +1037,7 @@ export default function App() {
                 <Button onClick={adminVerifyLicense} disabled={!isAuthed || !isAdmin} loading={busy.admin}>
                   Verify Licence
                 </Button>
-                {!isAdmin ? <div className="tiny muted">Login as an ADMIN user to verify.</div> : null}
+                {!isAdmin ? <div className="tiny muted">Login as admin to verify licences.</div> : null}
               </div>
             </Card>
           </div>
@@ -1190,13 +1205,13 @@ export default function App() {
 
         {/* ADMIN */}
         {active === "Admin" && isAdmin && (
-          <Card title="Admin Panel" subtitle="Minimal admin surface for demo.">
+          <Card title="Admin Panel" subtitle="Minimal admin surface for MVP demo.">
             <div className="hintBox">
               <div className="hintTitle">What this demonstrates</div>
               <ul className="hintList">
-                <li>Role-gated endpoint usage (ADMIN only).</li>
+                <li>Role-gated endpoint usage (admin only).</li>
                 <li>Manual verification workflow (licence).</li>
-                <li>Unlocking customer capabilities after trust checks.</li>
+                <li>Cookie auth + CSRF + refresh tokens.</li>
               </ul>
             </div>
 

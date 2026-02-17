@@ -1,12 +1,15 @@
-#backend/app/security.py
+# backend/app/security.py
 from __future__ import annotations
 
-from datetime import timedelta
+import hashlib
 from uuid import uuid4
 
 from fastapi import Response, Request, HTTPException
 
+from app.config import settings
+
 ACCESS_COOKIE = "access_token"
+REFRESH_COOKIE = "refresh_token"
 CSRF_COOKIE = "csrf_token"
 CSRF_HEADER = "X-CSRF-Token"
 
@@ -15,50 +18,69 @@ def new_csrf_token() -> str:
     return uuid4().hex
 
 
+def new_refresh_token() -> str:
+    return uuid4().hex
+
+
+def hash_refresh_token(raw: str) -> str:
+    data = (settings.refresh_token_pepper + raw).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
 def set_auth_cookies(
     response: Response,
-    access_token: str,
-    csrf_token: str,
     *,
-    secure: bool = False,
-    same_site: str = "lax",
-    max_age_seconds: int = 60 * 60,  # 1 hour
+    access_token: str,
+    refresh_token: str,
+    csrf_token: str,
+    access_max_age_seconds: int,
+    refresh_max_age_seconds: int,
 ):
-    # HttpOnly JWT cookie
+    cookie_kwargs = dict(
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        domain=settings.cookie_domain,
+        path="/",
+    )
+
     response.set_cookie(
         key=ACCESS_COOKIE,
         value=access_token,
         httponly=True,
-        secure=secure,
-        samesite=same_site,
-        max_age=max_age_seconds,
-        path="/",
+        max_age=access_max_age_seconds,
+        **cookie_kwargs,
     )
 
-    # CSRF cookie readable by JS (double-submit pattern)
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=refresh_token,
+        httponly=True,
+        max_age=refresh_max_age_seconds,
+        **cookie_kwargs,
+    )
+
     response.set_cookie(
         key=CSRF_COOKIE,
         value=csrf_token,
         httponly=False,
-        secure=secure,
-        samesite=same_site,
-        max_age=max_age_seconds,
-        path="/",
+        max_age=refresh_max_age_seconds,
+        **cookie_kwargs,
     )
 
 
-def clear_auth_cookies(response: Response, *, secure: bool = False, same_site: str = "lax"):
-    response.delete_cookie(key=ACCESS_COOKIE, path="/", secure=secure, samesite=same_site)
-    response.delete_cookie(key=CSRF_COOKIE, path="/", secure=secure, samesite=same_site)
+def clear_auth_cookies(response: Response):
+    cookie_kwargs = dict(
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        domain=settings.cookie_domain,
+        path="/",
+    )
+    response.delete_cookie(key=ACCESS_COOKIE, **cookie_kwargs)
+    response.delete_cookie(key=REFRESH_COOKIE, **cookie_kwargs)
+    response.delete_cookie(key=CSRF_COOKIE, **cookie_kwargs)
 
 
 def require_csrf(request: Request):
-    """
-    Enforce CSRF for unsafe methods using double-submit cookie:
-    - Cookie: csrf_token
-    - Header: X-CSRF-Token
-    Must match.
-    """
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return
 
