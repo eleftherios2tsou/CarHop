@@ -117,7 +117,31 @@ function Field({ label, hint, ...props }) {
     </label>
   );
 }
+function SelectField({ label, hint, options = [], ...props }) {
+  return (
+    <label className="field">
+      <span className="fieldLabel">{label}</span>
+      <select className="input" {...props}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {hint ? <span className="fieldHint">{hint}</span> : null}
+    </label>
+  );
+}
 
+function TextAreaField({ label, hint, ...props }) {
+  return (
+    <label className="field">
+      <span className="fieldLabel">{label}</span>
+      <textarea className="input" rows={props.rows || 4} {...props} />
+      {hint ? <span className="fieldHint">{hint}</span> : null}
+    </label>
+  );
+}
 function Button({ variant = "primary", loading, ...props }) {
   const cls =
     variant === "ghost"
@@ -192,7 +216,25 @@ export default function App() {
   const [model, setModel] = useState("Corolla");
   const [year, setYear] = useState(2020);
   const [dailyPrice, setDailyPrice] = useState(50);
-
+  const [city, setCity] = useState("Bristol");
+  const [postcode, setPostcode] = useState("BS1");
+  const [transmission, setTransmission] = useState("AUTOMATIC"); 
+  const [fuelType, setFuelType] = useState("PETROL"); 
+  const [seats, setSeats] = useState(5);
+  const [doors, setDoors] = useState(5);
+  const [mileage, setMileage] = useState(45000);
+  const [color, setColor] = useState("Grey");
+  const [photos, setPhotos] = useState([]); 
+  const [features, setFeatures] = useState({
+    ac: true,
+    bluetooth: true,
+    carplay: false,
+    gps: false,
+    heatedSeats: false,
+  });
+  const [description, setDescription] = useState(
+    "Clean, reliable, easy to drive. Great for city + weekend trips."
+  );
   // bookings
   const [incoming, setIncoming] = useState([]);
   const [mine, setMine] = useState([]);
@@ -221,7 +263,7 @@ export default function App() {
   });
 
   const isAuthed = useMemo(() => !!profile, [profile]);
-  const isAdmin = useMemo(() => profile?.role === "ADMIN" || profile?.id === 1, [profile]);
+  const isAdmin = useMemo(() => profile?.role === "ADMIN", [profile]);
 
   function notify(msg, tone = "info") {
     setToast({ msg, tone });
@@ -261,15 +303,56 @@ export default function App() {
       setBusy((b) => ({ ...b, cars: false }));
     }
   }
+  function uid() {
+    return Math.random().toString(16).slice(2) + Date.now().toString(16);
+  }
+
+  async function filesToDataUrls(fileList) {
+    const files = Array.from(fileList || []);
+    const reads = files.map(
+      (f) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve({
+              id: uid(),
+              name: f.name,
+              type: f.type,
+              dataUrl: reader.result,
+            });
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        })
+    );
+    return Promise.all(reads);
+  }
+
+  async function onPickPhotos(e) {
+    const picked = await filesToDataUrls(e.target.files);
+    // append, max 8
+    setPhotos((p) => [...p, ...picked].slice(0, 8));
+    e.target.value = ""; // allow picking same file again
+  }
+
+  function removePhoto(id) {
+    setPhotos((p) => p.filter((x) => x.id !== id));
+  }
 
   async function refreshProfile() {
     setBusy((b) => ({ ...b, profile: true }));
     try {
       const data = await apiFetch("/profile/me", { onAuthError });
       setProfile(data);
+
+      // nice: prefill license form if backend returns it (optional)
+      if (data?.license) {
+        if (data.license.license_number) setLicenseNumber(data.license.license_number);
+        if (data.license.issuing_country) setIssuingCountry(data.license.issuing_country);
+        if (data.license.expiry_date) setExpiryDate(data.license.expiry_date);
+      }
+
       return data;
     } catch (e) {
-      // If not logged in, profile/me will 401 -> onAuthError clears state already
       setProfile(null);
       return null;
     } finally {
@@ -301,9 +384,9 @@ export default function App() {
     }
   }
 
+  // Initial load: cars + try restore session
   useEffect(() => {
     refreshCars().catch(() => {});
-    // on first load, try to restore session from cookies
     refreshProfile().then((p) => {
       if (p) {
         refreshIncoming().catch(() => {});
@@ -312,6 +395,33 @@ export default function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto refresh per page (replaces top refresh buttons)
+  useEffect(() => {
+    if (active === "Marketplace") {
+      refreshCars().catch(() => {});
+      return;
+    }
+    if (!isAuthed) return;
+
+    if (active === "Profile") {
+      refreshProfile().catch(() => {});
+    } else if (active === "Incoming") {
+      refreshIncoming().catch(() => {});
+    } else if (active === "My Bookings") {
+      refreshMine().catch(() => {});
+    } else if (active === "Admin") {
+      // Nothing mandatory here right now
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // Guard: non-admin can't sit on Admin tab
+  useEffect(() => {
+    if (active === "Admin" && !isAdmin) {
+      setActive("Marketplace");
+    }
+  }, [active, isAdmin]);
 
   /* -----------------------------
      Actions
@@ -420,6 +530,7 @@ export default function App() {
       });
       notify("License submitted ✅ (awaiting verification)", "ok");
       await refreshProfile();
+      // stay on Profile (license now lives there)
       setActive("Profile");
     } catch (err) {
       notify(`License error: ${err.message}`, "bad");
@@ -441,7 +552,6 @@ export default function App() {
       setBusy((b) => ({ ...b, admin: false }));
     }
   }
-
   async function createCar(e) {
     e.preventDefault();
     setBusy((b) => ({ ...b, car: true }));
@@ -457,7 +567,12 @@ export default function App() {
           availability_units: 1,
         }),
       });
+
       notify("Car listing created ✅", "ok");
+
+      // UI-only: clear photo picker state after successful publish
+      setPhotos([]);
+
       await refreshCars();
       setActive("Marketplace");
     } catch (err) {
@@ -466,6 +581,7 @@ export default function App() {
       setBusy((b) => ({ ...b, car: false }));
     }
   }
+
 
   async function requestBooking(carId) {
     setBusy((b) => ({ ...b, booking: carId }));
@@ -493,7 +609,10 @@ export default function App() {
   async function approveBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/approve`, { method: "POST", onAuthError });
+      const data = await apiFetch(`/bookings/${bookingId}/approve`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Approved booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -508,7 +627,10 @@ export default function App() {
   async function rejectBooking(bookingId) {
     setBusy((b) => ({ ...b, decision: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/reject`, { method: "POST", onAuthError });
+      const data = await apiFetch(`/bookings/${bookingId}/reject`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Rejected booking ✅ (${data.id})`, "ok");
       await refreshIncoming();
       await refreshMine();
@@ -522,7 +644,10 @@ export default function App() {
   async function cancelBooking(bookingId) {
     setBusy((b) => ({ ...b, cancel: bookingId }));
     try {
-      const data = await apiFetch(`/bookings/${bookingId}/cancel`, { method: "POST", onAuthError });
+      const data = await apiFetch(`/bookings/${bookingId}/cancel`, {
+        method: "POST",
+        onAuthError,
+      });
       notify(`Cancelled booking ✅ (${data.id})`, "ok");
       await refreshCars();
       await refreshIncoming();
@@ -551,6 +676,7 @@ export default function App() {
     };
   }, [profile, isAuthed]);
 
+  // Sidebar nav (cleaner)
   const navItems = useMemo(() => {
     const items = [{ key: "Marketplace", label: "Marketplace" }];
 
@@ -564,8 +690,6 @@ export default function App() {
     if (!profile?.email_verified) {
       items.push({ key: "Verify Email", label: "Verify Email" });
     }
-
-    items.push({ key: "License", label: "Driver License" });
 
     if (profile?.email_verified) {
       items.push({ key: "List Car", label: "List Car" });
@@ -609,40 +733,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="statusStrip">
-          <div className="statusRow">
-            <span>Auth</span>
-            {isAuthed ? <Badge tone="ok">Cookie session</Badge> : <Badge tone="bad">Logged out</Badge>}
-          </div>
-
-          <div className="statusRow">
-            <span>CSRF</span>
-            {getCsrfToken() ? <Badge tone="ok">Present</Badge> : <Badge tone="warn">Missing</Badge>}
-          </div>
-
-          <div className="statusRow">
-            <span>Email</span>
-            {profile?.email_verified ? <Badge tone="ok">Verified</Badge> : <Badge tone="warn">Pending</Badge>}
-          </div>
-
-          <div className="statusRow">
-            <span>Licence</span>
-            {!profile?.has_license ? (
-              <Badge tone="bad">Not submitted</Badge>
-            ) : profile?.license_verified ? (
-              <Badge tone="ok">Verified</Badge>
-            ) : (
-              <Badge tone="warn">Pending</Badge>
-            )}
-          </div>
-
-          {isAdmin ? (
-            <div className="statusRow">
-              <span>Role</span>
-              <Badge tone="ok">Admin</Badge>
-            </div>
-          ) : null}
-        </div>
+        {/* Removed the debug/status strip (Auth/CSRF/Email/License) */}
 
         <nav className="nav">
           {navItems.map((it) => (
@@ -681,34 +772,7 @@ export default function App() {
             <p className="pageSub">The new Era of commuting</p>
           </div>
 
-          <div className="topbarRight">
-            <Button variant="secondary" onClick={refreshCars} loading={busy.cars}>
-              Refresh Cars
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => refreshProfile().catch((e) => notify(e.message, "bad"))}
-              loading={busy.profile}
-            >
-              Refresh Profile
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => refreshIncoming().catch((e) => notify(e.message, "bad"))}
-              disabled={!isAuthed}
-              loading={busy.incoming}
-            >
-              Refresh Incoming
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => refreshMine().catch((e) => notify(e.message, "bad"))}
-              disabled={!isAuthed}
-              loading={busy.mine}
-            >
-              Refresh My Bookings
-            </Button>
-          </div>
+          {/* Removed the top-right refresh buttons */}
         </header>
 
         {/* MARKETPLACE */}
@@ -744,7 +808,12 @@ export default function App() {
                 />
               </label>
 
-              <Button variant="secondary" onClick={refreshCars} disabled={!datesOk} loading={busy.cars}>
+              <Button
+                variant="secondary"
+                onClick={refreshCars}
+                disabled={!datesOk}
+                loading={busy.cars}
+              >
                 Search availability
               </Button>
             </div>
@@ -768,7 +837,9 @@ export default function App() {
                         <div className="tileTitle">
                           #{c.id} · {c.make} {c.model}
                         </div>
-                        <Badge tone={c.status === "AVAILABLE" ? "ok" : "warn"}>{c.status}</Badge>
+                        <Badge tone={c.status === "AVAILABLE" ? "ok" : "warn"}>
+                          {c.status}
+                        </Badge>
                       </div>
 
                       <div className="tileMeta">
@@ -776,7 +847,12 @@ export default function App() {
                         <div className="mono">£{c.daily_price}/day</div>
                         <div className="mono">owner #{c.owner_id}</div>
                       </div>
-
+                      <div className="tileDetails">
+                        <div className="detail"><span className="muted">Transmission</span> <span className="mono">{c.transmission || "—"}</span></div>
+                        <div className="detail"><span className="muted">Fuel</span> <span className="mono">{c.fuel_type || "—"}</span></div>
+                        <div className="detail"><span className="muted">Seats</span> <span className="mono">{c.seats ?? "—"}</span></div>
+                        <div className="detail"><span className="muted">Location</span> <span className="mono">{c.city || "—"}</span></div>
+                      </div>
                       <div className="tileActions">
                         <Button
                           onClick={() => requestBooking(c.id)}
@@ -787,12 +863,17 @@ export default function App() {
                         </Button>
 
                         {!gates.canBook ? (
-                          <div className="tiny muted">Unlock: verify email + admin-verified licence.</div>
+                          <div className="tiny muted">
+                            Unlock: verify email + admin-verified licence.
+                          </div>
                         ) : !datesOk ? (
-                          <div className="tiny muted">Pick a valid date range first.</div>
+                          <div className="tiny muted">
+                            Pick a valid date range first.
+                          </div>
                         ) : (
                           <div className="tiny muted">
-                            Requested dates: <span className="mono">{startDate}</span> →{" "}
+                            Requested dates:{" "}
+                            <span className="mono">{startDate}</span> →{" "}
                             <span className="mono">{endDate}</span>
                           </div>
                         )}
@@ -843,8 +924,17 @@ export default function App() {
 
                 {authMode === "register" ? (
                   <>
-                    <Field label="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                    <Field label="Date of birth" value={dob} onChange={(e) => setDob(e.target.value)} placeholder="YYYY-MM-DD" />
+                    <Field
+                      label="Full name"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                    />
+                    <Field
+                      label="Date of birth"
+                      value={dob}
+                      onChange={(e) => setDob(e.target.value)}
+                      placeholder="YYYY-MM-DD"
+                    />
                   </>
                 ) : null}
 
@@ -869,7 +959,11 @@ export default function App() {
                   placeholder="paste token here"
                 />
                 <div className="row">
-                  <Button onClick={handleVerifyEmail} loading={busy.verify} disabled={!verificationToken}>
+                  <Button
+                    onClick={handleVerifyEmail}
+                    loading={busy.verify}
+                    disabled={!verificationToken}
+                  >
                     Verify Email
                   </Button>
                   <Button
@@ -908,97 +1002,127 @@ export default function App() {
           </Card>
         )}
 
-        {/* PROFILE */}
+        {/* PROFILE (now includes Driver License section) */}
         {active === "Profile" && (
-          <Card
-            title="Profile"
-            subtitle="Shows your onboarding status and platform gates."
-            right={
-              <div className="gates">
-                <Badge tone={gates.canListCars ? "ok" : "warn"}>
-                  {gates.canListCars ? "Can list cars" : "Listing locked"}
-                </Badge>
-                <Badge tone={gates.canBook ? "ok" : "warn"}>
-                  {gates.canBook ? "Can book" : "Booking locked"}
-                </Badge>
-              </div>
-            }
-          >
-            {!isAuthed ? (
-              <p className="muted">Login to see your profile.</p>
-            ) : (
-              <div className="profileGrid">
-                <div className="kv">
-                  <div className="k">User ID</div>
-                  <div className="v mono">{profile.id}</div>
-                </div>
-                <div className="kv">
-                  <div className="k">Email</div>
-                  <div className="v">{profile.email}</div>
-                </div>
-                <div className="kv">
-                  <div className="k">Name</div>
-                  <div className="v">{profile.full_name}</div>
-                </div>
-                <div className="kv">
-                  <div className="k">DoB</div>
-                  <div className="v mono">{profile.date_of_birth}</div>
-                </div>
-
-                <div className="kv">
-                  <div className="k">Role</div>
-                  <div className="v mono">{profile.role || "USER"}</div>
-                </div>
-
-                <div className="kv">
-                  <div className="k">Email verified</div>
-                  <div className="v">
-                    {profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
-                </div>
-
-                <div className="kv">
-                  <div className="k">Licence submitted</div>
-                  <div className="v">
-                    {profile.has_license ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
-                </div>
-
-                <div className="kv">
-                  <div className="k">Licence verified</div>
-                  <div className="v">
-                    {profile.license_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
-                </div>
-
-                <div className="kv">
-                  <div className="k">Profile complete</div>
-                  <div className="v">
-                    {profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {isAuthed ? (
-              <div className="hintBox">
-                <div className="hintTitle">Next steps</div>
-                <ul className="hintList">
-                  <li>If email isn’t verified: go to <b>Verify Email</b>.</li>
-                  <li>If licence isn’t verified: submit it in <b>Driver License</b> then verify as admin.</li>
-                  <li>
-                    CSRF failures mean your frontend didn’t send <span className="mono">X-CSRF-Token</span>.
-                  </li>
-                </ul>
-              </div>
-            ) : null}
-          </Card>
-        )}
-
-        {/* LICENSE */}
-        {active === "License" && (
           <div className="twoCol">
-            <Card title="Driver License" subtitle="Submit or update licence details (admin verification required).">
+            <Card
+              title="Profile"
+              subtitle="Shows your onboarding status and platform gates."
+              right={
+                <div className="gates">
+                  <Badge tone={gates.canListCars ? "ok" : "warn"}>
+                    {gates.canListCars ? "Can list cars" : "Listing locked"}
+                  </Badge>
+                  <Badge tone={gates.canBook ? "ok" : "warn"}>
+                    {gates.canBook ? "Can book" : "Booking locked"}
+                  </Badge>
+                </div>
+              }
+            >
+              {!isAuthed ? (
+                <p className="muted">Login to see your profile.</p>
+              ) : (
+                <>
+                  <div className="profileGrid">
+                    <div className="kv">
+                      <div className="k">User ID</div>
+                      <div className="v mono">{profile.id}</div>
+                    </div>
+                    <div className="kv">
+                      <div className="k">Email</div>
+                      <div className="v">{profile.email}</div>
+                    </div>
+                    <div className="kv">
+                      <div className="k">Name</div>
+                      <div className="v">{profile.full_name}</div>
+                    </div>
+                    <div className="kv">
+                      <div className="k">DoB</div>
+                      <div className="v mono">{profile.date_of_birth}</div>
+                    </div>
+
+                    <div className="kv">
+                      <div className="k">Role</div>
+                      <div className="v mono">{profile.role || "USER"}</div>
+                    </div>
+
+                    <div className="kv">
+                      <div className="k">Email verified</div>
+                      <div className="v">
+                        {profile.email_verified ? (
+                          <Badge tone="ok">Yes</Badge>
+                        ) : (
+                          <Badge tone="warn">No</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="kv">
+                      <div className="k">Licence submitted</div>
+                      <div className="v">
+                        {profile.has_license ? (
+                          <Badge tone="ok">Yes</Badge>
+                        ) : (
+                          <Badge tone="warn">No</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="kv">
+                      <div className="k">Licence verified</div>
+                      <div className="v">
+                        {profile.license_verified ? (
+                          <Badge tone="ok">Yes</Badge>
+                        ) : (
+                          <Badge tone="warn">No</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="kv">
+                      <div className="k">Profile complete</div>
+                      <div className="v">
+                        {profile.profile_complete ? (
+                          <Badge tone="ok">Yes</Badge>
+                        ) : (
+                          <Badge tone="warn">No</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="hintBox">
+                    <div className="hintTitle">Next steps</div>
+                    <ul className="hintList">
+                      <li>
+                        If email isn’t verified: go to <b>Verify Email</b>.
+                      </li>
+                      <li>
+                        If licence isn’t verified: submit it below, then ask an admin to verify.
+                      </li>
+                      <li>
+                        CSRF failures mean your frontend didn’t send{" "}
+                        <span className="mono">X-CSRF-Token</span>.
+                      </li>
+                    </ul>
+                  </div>
+                </>
+              )}
+            </Card>
+
+            <Card
+              title="Driver License"
+              subtitle="Submit or update licence details (admin verification required)."
+              right={
+                !isAuthed ? null : !profile?.has_license ? (
+                  <Badge tone="warn">Not submitted</Badge>
+                ) : profile?.license_verified ? (
+                  <Badge tone="ok">Verified</Badge>
+                ) : (
+                  <Badge tone="warn">Pending</Badge>
+                )
+              }
+            >
               <form className="form" onSubmit={submitLicense}>
                 <Field
                   label="Licence number"
@@ -1023,34 +1147,49 @@ export default function App() {
                 </Button>
                 {!isAuthed ? <div className="tiny muted">Login first.</div> : null}
               </form>
-            </Card>
 
-            <Card title="Admin: Verify Licence" subtitle="Admin-only verification flow.">
-              <div className="form">
-                <Field
-                  label="User ID to verify"
-                  type="number"
-                  min="1"
-                  value={adminVerifyUserId}
-                  onChange={(e) => setAdminVerifyUserId(e.target.value)}
-                />
-                <Button onClick={adminVerifyLicense} disabled={!isAuthed || !isAdmin} loading={busy.admin}>
-                  Verify Licence
-                </Button>
-                {!isAdmin ? <div className="tiny muted">Login as admin to verify licences.</div> : null}
-              </div>
+              {isAdmin ? (
+                <>
+                  <div className="divider" />
+                  <div className="form">
+                    <div className="tiny muted" style={{ marginBottom: 8 }}>
+                      Admin-only: verify a user’s licence
+                    </div>
+                    <Field
+                      label="User ID to verify"
+                      type="number"
+                      min="1"
+                      value={adminVerifyUserId}
+                      onChange={(e) => setAdminVerifyUserId(e.target.value)}
+                    />
+                    <Button onClick={adminVerifyLicense} loading={busy.admin}>
+                      Verify Licence
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="tiny muted" style={{ marginTop: 10 }}>
+                  Verification is done by an admin.
+                </div>
+              )}
             </Card>
           </div>
         )}
 
         {/* LIST CAR */}
+
         {active === "List Car" && (
           <Card
             title="List a Car"
             subtitle="Owners can publish a listing. Requires email verification."
-            right={<Badge tone={gates.canListCars ? "ok" : "warn"}>{gates.canListCars ? "Unlocked" : "Locked"}</Badge>}
+            right={
+              <Badge tone={gates.canListCars ? "ok" : "warn"}>
+                {gates.canListCars ? "Unlocked" : "Locked"}
+              </Badge>
+            }
           >
-            <form className="form" onSubmit={createCar} style={{ maxWidth: 720 }}>
+            <form className="form" onSubmit={createCar} style={{ maxWidth: 900 }}>
+              <div className="sectionTitle">Basics</div>
               <div className="grid2">
                 <Field label="Make" value={make} onChange={(e) => setMake(e.target.value)} placeholder="Toyota" />
                 <Field label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="Corolla" />
@@ -1064,6 +1203,130 @@ export default function App() {
                 />
               </div>
 
+              <div className="sectionTitle">Location</div>
+              <div className="grid2">
+                <Field label="City" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Bristol" />
+                <Field label="Postcode" value={postcode} onChange={(e) => setPostcode(e.target.value)} placeholder="BS1" />
+              </div>
+
+              <div className="sectionTitle">Specs</div>
+              <div className="grid3">
+                <SelectField
+                  label="Transmission"
+                  value={transmission}
+                  onChange={(e) => setTransmission(e.target.value)}
+                  options={[
+                    { value: "AUTOMATIC", label: "Automatic" },
+                    { value: "MANUAL", label: "Manual" },
+                  ]}
+                />
+                <SelectField
+                  label="Fuel type"
+                  value={fuelType}
+                  onChange={(e) => setFuelType(e.target.value)}
+                  options={[
+                    { value: "PETROL", label: "Petrol" },
+                    { value: "DIESEL", label: "Diesel" },
+                    { value: "HYBRID", label: "Hybrid" },
+                    { value: "ELECTRIC", label: "Electric" },
+                  ]}
+                />
+                <Field label="Color" value={color} onChange={(e) => setColor(e.target.value)} placeholder="Grey" />
+
+                <Field label="Seats" type="number" min="1" value={seats} onChange={(e) => setSeats(e.target.value)} />
+                <Field label="Doors" type="number" min="2" value={doors} onChange={(e) => setDoors(e.target.value)} />
+                <Field
+                  label="Mileage"
+                  type="number"
+                  min="0"
+                  value={mileage}
+                  onChange={(e) => setMileage(e.target.value)}
+                  hint="Total miles (approx)"
+                />
+              </div>
+
+              <div className="sectionTitle">Features</div>
+              <div className="chipRow">
+                {[
+                  ["ac", "A/C"],
+                  ["bluetooth", "Bluetooth"],
+                  ["carplay", "Apple CarPlay"],
+                  ["gps", "GPS"],
+                  ["heatedSeats", "Heated seats"],
+                ].map(([key, label]) => {
+                  const on = !!features[key];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={on ? "chip chipOn" : "chip"}
+                      onClick={() => setFeatures((f) => ({ ...f, [key]: !f[key] }))}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="sectionTitle">Photos</div>
+              <div className="photoBox">
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <div className="tiny muted">
+                    UI-only for now. Add up to 8 photos.
+                  </div>
+
+                  <label className="btn btnSecondary" style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                    <span>Upload</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={onPickPhotos}
+                    />
+                  </label>
+                </div>
+
+                {photos.length === 0 ? (
+                  <div className="photoEmpty">
+                    No photos yet. Add at least 1 for a realistic listing.
+                  </div>
+                ) : (
+                  <div className="photoGrid">
+                    {photos.map((p) => (
+                      <div className="photoTile" key={p.id}>
+                        <img src={p.dataUrl} alt={p.name} className="photoImg" />
+                        <button
+                          type="button"
+                          className="photoX"
+                          onClick={() => removePhoto(p.id)}
+                          aria-label="remove photo"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <TextAreaField
+                label="Description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                
+                rows={4}
+              />
+
+              <div className="hintBox">
+                <div className="hintTitle">UI-first note</div>
+                <ul className="hintList">
+                  <li>
+                    Right now only <span className="mono">make/model/year/daily_price</span> are saved to the backend.
+                  </li>
+                  <li>Next step: add these fields to the backend Car model + migrations + API schemas.</li>
+                </ul>
+              </div>
+
               <Button type="submit" disabled={!gates.canListCars} loading={busy.car}>
                 Publish Listing
               </Button>
@@ -1072,6 +1335,7 @@ export default function App() {
             </form>
           </Card>
         )}
+
 
         {/* INCOMING */}
         {active === "Incoming" && (
@@ -1090,7 +1354,8 @@ export default function App() {
                       </div>
 
                       <div className="rowCardSub">
-                        Dates: <span className="mono">{b.start_date}</span> → <span className="mono">{b.end_date}</span>
+                        Dates: <span className="mono">{b.start_date}</span> →{" "}
+                        <span className="mono">{b.end_date}</span>
                       </div>
 
                       <div className="rowCardSub">
@@ -1163,7 +1428,8 @@ export default function App() {
                         </div>
 
                         <div className="rowCardSub">
-                          Dates: <span className="mono">{b.start_date}</span> → <span className="mono">{b.end_date}</span>
+                          Dates: <span className="mono">{b.start_date}</span> →{" "}
+                          <span className="mono">{b.end_date}</span>
                         </div>
 
                         <div className="rowCardSub">
@@ -1203,7 +1469,7 @@ export default function App() {
           </Card>
         )}
 
-        {/* ADMIN */}
+        {/* ADMIN (visible only to admins) */}
         {active === "Admin" && isAdmin && (
           <Card title="Admin Panel" subtitle="Minimal admin surface for MVP demo.">
             <div className="hintBox">

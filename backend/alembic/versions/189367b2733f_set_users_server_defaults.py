@@ -1,8 +1,8 @@
-"""add user defaults
+"""set users server defaults
 
-Revision ID: 81450923c821
-Revises: c24f83caaabd
-Create Date: 2026-02-17 13:15:33.397936
+Revision ID: 189367b2733f
+Revises: 81450923c821
+Create Date: 2026-02-17 13:31:33.022523
 
 """
 from typing import Sequence, Union
@@ -10,10 +10,13 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "81450923c821"
-down_revision: Union[str, Sequence[str], None] = "c24f83caaabd"
+
+# revision identifiers, used by Alembic.
+revision: str = '189367b2733f'
+down_revision: Union[str, Sequence[str], None] = '81450923c821'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
 
 
 def upgrade() -> None:
