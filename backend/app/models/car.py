@@ -52,7 +52,7 @@ class CarListing(Base):
     owner: Mapped["User"] = relationship(
         "User",
         foreign_keys=[owner_id],
-        lazy="raise",
+        lazy="selectin",
     )
 
     @property
