@@ -59,5 +59,14 @@ class Settings(BaseSettings):
     frontend_base_url: str = Field("http://localhost:5173", alias="FRONTEND_BASE_URL")
     payments_currency: str = Field("gbp", alias="PAYMENTS_CURRENCY")
 
+    @property
+    def cors_origins_list(self) -> list[str]:
+        raw = (self.cors_origins or "").strip()
+        if not raw:
+            return []
+        if raw == "*":
+            return ["*"]
+        return [x.strip() for x in raw.split(",") if x.strip()]
+
 
 settings = Settings()

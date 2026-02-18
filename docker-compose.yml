@@ -29,28 +29,29 @@ services:
         condition: service_healthy
 
     environment:
-      DATABASE_URL: postgresql+psycopg://carhop:carhop@carhop_db:5432/carhop
-      JWT_SECRET_KEY: dev-secret-change-me
-      JWT_ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
-      REFRESH_TOKEN_PEPPER: dev-refresh-pepper-change-me
-      REFRESH_TOKEN_EXPIRE_DAYS: "30"
-      UPLOADS_DIR: /app/uploads
-      COOKIE_SECURE: "false"
-      COOKIE_HTTPONLY: "true"
-      COOKIE_SAMESITE: lax
-      STORAGE_BACKEND: local
-      # SMTP email — fill these in to enable notifications (leave blank to disable)
-      SMTP_HOST: "smtp.gmail.com"
-      SMTP_PORT: "587"
-      SMTP_USER: "lefteris02tsourdiou@gmail.com"
-      SMTP_PASSWORD: "xjel mdjy femv akcz"
-      SMTP_FROM: "lefteris02tsourdiou@gmail.com"
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://carhop:carhop@carhop_db:5432/carhop}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-change-me}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      REFRESH_TOKEN_PEPPER: ${REFRESH_TOKEN_PEPPER:-dev-refresh-pepper-change-me}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      UPLOADS_DIR: ${UPLOADS_DIR:-/app/uploads}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_HTTPONLY: ${COOKIE_HTTPONLY:-true}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # SMTP email: leave blank to disable notifications
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@carhop.com}
       # Stripe (test mode). Leave blank to use simulated payments fallback.
-      STRIPE_SECRET_KEY: ""
-      STRIPE_WEBHOOK_SECRET: ""
-      FRONTEND_BASE_URL: "http://localhost:5173"
-      PAYMENTS_CURRENCY: "gbp"
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      PAYMENTS_CURRENCY: ${PAYMENTS_CURRENCY:-gbp}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"

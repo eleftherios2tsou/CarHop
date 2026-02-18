@@ -14,6 +14,7 @@ from app.models.refresh_token import RefreshToken
 from app.schemas.auth import RegisterIn, LoginIn
 from app.auth import hash_password, verify_password
 from app.jwt import create_access_token
+from app.rate_limit import check_rate_limit
 from app.security import (
     new_csrf_token,
     new_refresh_token,
@@ -34,8 +35,17 @@ def age_in_years(dob: date) -> int:
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client and request.client.host else "unknown"
+
+
 @router.post("/register")
-def register(payload: RegisterIn, db: Session = Depends(get_db)):
+def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(scope="auth.register", identifier=_client_ip(request), limit=8, window_seconds=600)
+
     if payload.date_of_birth > date.today():
         raise HTTPException(status_code=400, detail="Invalid date of birth")
 
@@ -69,7 +79,9 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
 
 
 @router.post("/verify-email/{token}")
-def verify_email(token: str, db: Session = Depends(get_db)):
+def verify_email(token: str, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(scope="auth.verify_email", identifier=_client_ip(request), limit=20, window_seconds=600)
+
     record = db.query(EmailVerificationToken).filter_by(token=token).first()
     if not record:
         raise HTTPException(status_code=400, detail="Invalid token")
@@ -86,7 +98,9 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(payload: LoginIn, db: Session = Depends(get_db)):
+def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(scope="auth.login", identifier=_client_ip(request), limit=12, window_seconds=600)
+
     user = db.query(User).filter_by(email=payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -130,6 +144,8 @@ def refresh(request: Request, db: Session = Depends(get_db)):
     Validates refresh cookie against DB, rotates refresh token,
     mints new access token and CSRF token.
     """
+    check_rate_limit(scope="auth.refresh", identifier=_client_ip(request), limit=60, window_seconds=600)
+
     refresh_raw = request.cookies.get(REFRESH_COOKIE)
     if not refresh_raw:
         raise HTTPException(status_code=401, detail="Missing refresh token")

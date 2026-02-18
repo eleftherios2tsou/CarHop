@@ -132,11 +132,11 @@ Alembic migrations exist for baseline schema plus iterative changes (user defaul
 - Non-blocking email dispatch to keep core flows robust.
 
 ### Risks / improvement opportunities
-1. **Secrets committed in Compose** (SMTP credentials visible). Move all secrets to `.env`/secret manager immediately.
-2. CORS origins are hardcoded in app startup; align with env-driven config for multi-env deploys.
+1. Secrets now use env interpolation in Compose, but production secret management/rotation policy should still be formalized.
+2. CORS is now env-driven; production origin allowlist governance is still required.
 3. Stripe test-mode checkout + webhook ingestion is now implemented, but payouts/escrow release are still app-managed (not Stripe Connect).
 4. Booking status is stringly-typed; introducing enum constraints can reduce data drift.
-5. Consider explicit rate limiting + auth brute-force mitigation for login/verify endpoints.
+5. Auth brute-force baseline is now in place (IP-based limiter on register/login/verify/refresh), but distributed/global rate limiting is still recommended for multi-instance deploys.
 
 ## 11) Quick mental model for contributors
 
@@ -292,11 +292,11 @@ docker compose exec api alembic upgrade head
 - Full polish pass still pending
 
 3. Reliable deploy path: pending
-4. Security baseline: pending
+4. Security baseline: in progress (secrets externalized in compose env vars, env-driven CORS, auth rate limiting added)
 5. Test coverage: in progress (smoke coverage added, broader integration suite pending)
 6. Ops and compliance: pending
 
 ### Recommended next implementation step
 - Move to next track outside payments:
-  - Security baseline hardening (secret management, CORS/cookie env rules, auth rate limiting)
-  - or UI/feature polish pass for production readiness
+  - UI/feature polish pass for production readiness
+  - or deeper security hardening (production secret manager integration + distributed rate limiting)
