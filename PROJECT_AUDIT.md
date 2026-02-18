@@ -148,3 +148,41 @@ If you want to debug any feature fast:
 5. Confirm migration/state assumptions in `backend/alembic/versions/*`.
 
 This project is already in a good “MVP-plus” state: the foundations for auth, listing CRUD, and booking lifecycle are solid, with clear next steps toward production readiness (payments, messaging, reviews, stronger secret management, and deploy hardening).
+
+## 12) Prioritized roadmap to final version
+
+1. **Product-complete trust features**
+- Add payments/escrow flow.
+- Add in-app messaging between renter and owner.
+- Add reviews/ratings after completed bookings.
+- Add dispute/cancellation policy flows in product logic.
+
+2. **UI + feature polish for production readiness**
+- Unify design system tokens, spacing, and typography across pages.
+- Improve empty/loading/error states for all major flows.
+- Polish booking/listing UX (filter clarity, card hierarchy, confirmations).
+- Improve mobile responsiveness and accessibility pass (keyboard/contrast/forms).
+
+3. **Reliable deploy path**
+- Create production compose/deploy profile.
+- Ensure Alembic migrations run in release pipeline/startup.
+- Add health checks/readiness checks and startup ordering.
+- Document one-command deploy and rollback procedure.
+
+4. **Security baseline**
+- Remove committed secrets from repository and rotate exposed credentials.
+- Move environment config to secure secret management.
+- Enforce production CORS/cookie settings by environment.
+- Add auth endpoint rate limiting and brute-force protection.
+
+5. **Test coverage**
+- Keep smoke tests for publish listing and photo upload.
+- Add booking lifecycle integration tests.
+- Add auth/session/CSRF failure-path tests.
+- Add CI gate for backend tests before merge/deploy.
+
+6. **Ops and compliance**
+- Add structured logging, error tracking, and basic metrics.
+- Define DB/uploads backup and restore drills.
+- Add admin/audit trails for high-risk actions.
+- Prepare core legal docs (Terms, Privacy, cancellation policy) and data retention policy.
