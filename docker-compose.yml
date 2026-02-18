@@ -40,6 +40,12 @@ services:
       COOKIE_HTTPONLY: "true"
       COOKIE_SAMESITE: lax
       STORAGE_BACKEND: local
+      # SMTP email — fill these in to enable notifications (leave blank to disable)
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      SMTP_USER: "lefteris02tsourdiou@gmail.com"
+      SMTP_PASSWORD: "xjel mdjy femv akcz"
+      SMTP_FROM: "lefteris02tsourdiou@gmail.com"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"

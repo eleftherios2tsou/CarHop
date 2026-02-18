@@ -6,6 +6,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, exists, select
 
 from app.deps import get_db, get_current_verified_user, csrf_protect
+from app.email import (
+    notify_booking_approved,
+    notify_booking_cancelled,
+    notify_booking_rejected,
+    notify_booking_requested,
+)
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.license import DriverLicense
@@ -83,6 +89,20 @@ def request_booking(
     db.add(booking)
     db.commit()
     db.refresh(booking)
+
+    # Notify the car owner
+    owner = db.get(User, car.owner_id)
+    if owner:
+        car_label = f"{car.make} {car.model} ({car.year})"
+        notify_booking_requested(
+            owner_email=owner.email,
+            owner_name=owner.full_name,
+            renter_name=current_user.full_name,
+            car=car_label,
+            start=booking.start_date,
+            end=booking.end_date,
+        )
+
     return booking
 
 
@@ -136,6 +156,19 @@ def approve_booking(
     booking.status = "APPROVED"
     db.commit()
     db.refresh(booking)
+
+    # Notify the renter
+    renter = db.get(User, booking.renter_id)
+    if renter:
+        car_label = f"{car.make} {car.model} ({car.year})"
+        notify_booking_approved(
+            renter_email=renter.email,
+            renter_name=renter.full_name,
+            car=car_label,
+            start=booking.start_date,
+            end=booking.end_date,
+        )
+
     return booking
 
 
@@ -159,6 +192,19 @@ def reject_booking(
     booking.status = "REJECTED"
     db.commit()
     db.refresh(booking)
+
+    # Notify the renter
+    renter = db.get(User, booking.renter_id)
+    if renter:
+        car_label = f"{car.make} {car.model} ({car.year})"
+        notify_booking_rejected(
+            renter_email=renter.email,
+            renter_name=renter.full_name,
+            car=car_label,
+            start=booking.start_date,
+            end=booking.end_date,
+        )
+
     return booking
 
 
@@ -195,4 +241,20 @@ def cancel_booking(
 
     db.commit()
     db.refresh(booking)
+
+    # Notify the car owner
+    car = db.get(CarListing, booking.car_id)
+    if car:
+        owner = db.get(User, car.owner_id)
+        if owner:
+            car_label = f"{car.make} {car.model} ({car.year})"
+            notify_booking_cancelled(
+                owner_email=owner.email,
+                owner_name=owner.full_name,
+                renter_name=current_user.full_name,
+                car=car_label,
+                start=booking.start_date,
+                end=booking.end_date,
+            )
+
     return booking

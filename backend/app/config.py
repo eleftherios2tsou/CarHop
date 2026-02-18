@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     cookie_samesite: str = Field("lax", alias="COOKIE_SAMESITE")
     cookie_domain: str | None = Field(None, alias="COOKIE_DOMAIN")
 
+    # SMTP / email (all optional — emails are silently skipped if not configured)
+    smtp_host: str | None = Field(None, alias="SMTP_HOST")
+    smtp_port: int = Field(587, alias="SMTP_PORT")
+    smtp_user: str | None = Field(None, alias="SMTP_USER")
+    smtp_password: str | None = Field(None, alias="SMTP_PASSWORD")
+    smtp_from: str = Field("noreply@carhop.com", alias="SMTP_FROM")
+
     # Optional
     api_base_url: str = Field("http://localhost:8000", alias="API_BASE_URL")
     cors_origins: str = Field("*", alias="CORS_ORIGINS")
