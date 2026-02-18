@@ -363,6 +363,13 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
                         · {c.owner.listing_count} listing
                         {c.owner.listing_count !== 1 ? "s" : ""}
                       </span>
+                      <span>
+                        · {c.owner.avg_rating ? c.owner.avg_rating.toFixed(1) : "No"} rating
+                      </span>
+                      <span>
+                        ({c.owner.review_count || 0} review
+                        {c.owner.review_count === 1 ? "" : "s"})
+                      </span>
                     </div>
                   )}
 

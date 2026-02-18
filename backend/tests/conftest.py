@@ -15,7 +15,7 @@ from app.config import settings
 from app.database import Base
 from app.deps import csrf_protect, get_current_user, get_db
 from app.main import app
-from app.models import CarListing, CarPhoto, User  # noqa: F401
+from app.models import BookingRequest, CarListing, CarPhoto, Message, Review, User  # noqa: F401
 
 
 @pytest.fixture()
@@ -55,7 +55,12 @@ def client(tmp_path):
             session.close()
 
     def override_get_current_user():
-        return SimpleNamespace(id=user_id, role="USER")
+        return SimpleNamespace(
+            id=user_id,
+            role="USER",
+            email_verified=True,
+            is_active=True,
+        )
 
     def override_csrf_protect():
         return None
@@ -63,9 +68,13 @@ def client(tmp_path):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[csrf_protect] = override_csrf_protect
+    app.state.test_sessionmaker = TestingSessionLocal
+    app.state.test_user_id = user_id
 
     with TestClient(app) as test_client:
         yield test_client, tmp_path
 
     app.dependency_overrides.clear()
+    app.state.test_sessionmaker = None
+    app.state.test_user_id = None
     Base.metadata.drop_all(bind=engine)

@@ -14,6 +14,7 @@ from app.deps import get_db, get_current_user, csrf_protect
 from app.models.car import CarListing
 from app.models.car_photo import CarPhoto
 from app.models.booking import BookingRequest
+from app.models.review import Review
 from app.models.user import User
 from app.schemas.car import CarCreate, CarOut, CarDetailOut, CarPhotosOut, CarUpdate
 
@@ -110,17 +111,37 @@ def list_cars(
 
     if cars:
         owner_ids = list({c.owner_id for c in cars})
-        count_rows = (
+        listing_rows = (
             db.query(CarListing.owner_id, func.count(CarListing.id).label("cnt"))
             .filter(CarListing.owner_id.in_(owner_ids))
             .group_by(CarListing.owner_id)
             .all()
         )
-        count_map = {row.owner_id: row.cnt for row in count_rows}
+        review_rows = (
+            db.query(
+                Review.owner_id,
+                func.count(Review.id).label("review_cnt"),
+                func.avg(Review.rating).label("avg_rating"),
+            )
+            .filter(Review.owner_id.in_(owner_ids))
+            .group_by(Review.owner_id)
+            .all()
+        )
+        listing_count_map = {row.owner_id: row.cnt for row in listing_rows}
+        review_map = {
+            row.owner_id: {
+                "review_count": int(row.review_cnt or 0),
+                "avg_rating": float(row.avg_rating) if row.avg_rating is not None else None,
+            }
+            for row in review_rows
+        }
         for car in cars:
             if car.owner:
-                car.owner.listing_count = count_map.get(car.owner_id, 0)
+                car.owner.listing_count = listing_count_map.get(car.owner_id, 0)
                 car.owner.member_since = car.owner.created_at
+                review_meta = review_map.get(car.owner_id, {"review_count": 0, "avg_rating": None})
+                car.owner.review_count = review_meta["review_count"]
+                car.owner.avg_rating = review_meta["avg_rating"]
 
     return cars
 

@@ -218,6 +218,7 @@ export default function App() {
 
         {active === "Incoming" && (
           <IncomingBookingsPage
+            profile={profile}
             isAuthed={isAuthed}
             notify={notify}
             onAuthError={onAuthError}
@@ -226,6 +227,7 @@ export default function App() {
 
         {active === "My Bookings" && (
           <MyBookingsPage
+            profile={profile}
             isAuthed={isAuthed}
             notify={notify}
             onAuthError={onAuthError}

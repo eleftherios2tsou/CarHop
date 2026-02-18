@@ -11,6 +11,8 @@ class OwnerOut(BaseModel):
     full_name: str
     member_since: datetime | None = None
     listing_count: int = 0
+    avg_rating: float | None = None
+    review_count: int = 0
 
     class Config:
         from_attributes = True

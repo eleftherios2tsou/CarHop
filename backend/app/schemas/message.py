@@ -1,0 +1,19 @@
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class MessageCreateIn(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class MessageOut(BaseModel):
+    id: int
+    booking_id: int
+    sender_id: int
+    recipient_id: int
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
