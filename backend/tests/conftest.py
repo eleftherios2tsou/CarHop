@@ -15,7 +15,7 @@ from app.config import settings
 from app.database import Base
 from app.deps import csrf_protect, get_current_user, get_db
 from app.main import app
-from app.models import BookingRequest, CarListing, CarPhoto, Message, Review, User  # noqa: F401
+from app.models import BookingRequest, CarListing, CarPhoto, Dispute, Message, Review, User  # noqa: F401
 
 
 @pytest.fixture()

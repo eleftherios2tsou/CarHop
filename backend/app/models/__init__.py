@@ -8,3 +8,4 @@ from .license import DriverLicense
 from .refresh_token import RefreshToken
 from .review import Review
 from .message import Message
+from .dispute import Dispute

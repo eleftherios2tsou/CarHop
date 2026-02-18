@@ -11,21 +11,32 @@ function bookingStatusTone(status) {
   return "warn";
 }
 
+function disputeTone(status) {
+  if (status === "OPEN") return "warn";
+  if (status === "RESOLVED") return "ok";
+  if (status === "REJECTED") return "bad";
+  return "warn";
+}
+
 export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuthError }) {
   const [incoming, setIncoming] = useState([]);
   const [messagesByBooking, setMessagesByBooking] = useState({});
+  const [disputesByBooking, setDisputesByBooking] = useState({});
   const [messageDrafts, setMessageDrafts] = useState({});
   const [openThreadId, setOpenThreadId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [busyDecision, setBusyDecision] = useState(null);
   const [busyThreadLoad, setBusyThreadLoad] = useState(null);
   const [busyThreadSend, setBusyThreadSend] = useState(null);
+  const [busyDispute, setBusyDispute] = useState(null);
 
   async function fetchIncoming() {
     setBusy(true);
     try {
       const data = await apiFetch("/bookings/incoming", { onAuthError });
-      setIncoming(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setIncoming(list);
+      await Promise.all(list.map((b) => loadDispute(b.id, false)));
     } catch {
       setIncoming([]);
     } finally {
@@ -61,6 +72,40 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       notify(`Reject error: ${err.message}`, "bad");
     } finally {
       setBusyDecision(null);
+    }
+  }
+
+  async function loadDispute(bookingId, showError = true) {
+    try {
+      const dispute = await apiFetch(`/disputes/booking/${bookingId}`, { onAuthError });
+      setDisputesByBooking((prev) => ({ ...prev, [bookingId]: dispute }));
+    } catch (err) {
+      if (String(err?.message || "").includes("No dispute")) {
+        setDisputesByBooking((prev) => ({ ...prev, [bookingId]: null }));
+      } else if (showError) {
+        notify(`Dispute load error: ${err.message}`, "bad");
+      }
+    }
+  }
+
+  async function openDispute(bookingId) {
+    const reason = window.prompt("Dispute reason (short title):", "Renter issue");
+    if (!reason || !reason.trim()) return;
+    const details = window.prompt("Dispute details:", "Describe what happened.");
+
+    setBusyDispute(bookingId);
+    try {
+      await apiFetch(`/disputes/booking/${bookingId}`, {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ reason: reason.trim(), details: (details || "").trim() || null }),
+      });
+      notify(`Dispute opened for booking #${bookingId}`, "ok");
+      await loadDispute(bookingId);
+    } catch (err) {
+      notify(`Open dispute error: ${err.message}`, "bad");
+    } finally {
+      setBusyDispute(null);
     }
   }
 
@@ -116,7 +161,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
   return (
     <Card
       title="Incoming Booking Requests"
-      subtitle="Owners can approve/reject requests and message renters."
+      subtitle="Owners can approve/reject requests, message renters, and open disputes."
     >
       {!isAuthed ? (
         <p className="muted">Login to view incoming bookings.</p>
@@ -129,6 +174,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
           {incoming.map((b) => {
             const thread = messagesByBooking[b.id] || [];
             const threadOpen = openThreadId === b.id;
+            const dispute = disputesByBooking[b.id];
 
             return (
               <div className="rowCard" key={b.id}>
@@ -142,6 +188,11 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                   </div>
                   <div className="rowCardSub">
                     Status: <Badge tone={bookingStatusTone(b.status)}>{b.status}</Badge>
+                    {dispute ? (
+                      <span style={{ marginLeft: 8 }}>
+                        <Badge tone={disputeTone(dispute.status)}>Dispute: {dispute.status}</Badge>
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -175,6 +226,17 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                   >
                     {threadOpen ? "Hide Messages" : "Messages"}
                   </Button>
+
+                  {!dispute ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => openDispute(b.id)}
+                      loading={busyDispute === b.id}
+                      disabled={b.status === "PENDING"}
+                    >
+                      Open Dispute
+                    </Button>
+                  ) : null}
                 </div>
 
                 {threadOpen ? (
@@ -223,10 +285,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                         onChange={(e) => setMessageDraft(b.id, e.target.value)}
                         placeholder="Write a message"
                       />
-                      <Button
-                        onClick={() => sendMessage(b.id)}
-                        loading={busyThreadSend === b.id}
-                      >
+                      <Button onClick={() => sendMessage(b.id)} loading={busyThreadSend === b.id}>
                         Send
                       </Button>
                     </div>

@@ -11,6 +11,13 @@ function bookingStatusTone(status) {
   return "warn";
 }
 
+function disputeTone(status) {
+  if (status === "OPEN") return "warn";
+  if (status === "RESOLVED") return "ok";
+  if (status === "REJECTED") return "bad";
+  return "warn";
+}
+
 function canLeaveReview(booking, reviewedIds) {
   if (booking.status !== "APPROVED") return false;
   if (reviewedIds.has(booking.id)) return false;
@@ -24,6 +31,7 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
   const [myReviews, setMyReviews] = useState([]);
   const [reviewDrafts, setReviewDrafts] = useState({});
   const [messagesByBooking, setMessagesByBooking] = useState({});
+  const [disputesByBooking, setDisputesByBooking] = useState({});
   const [messageDrafts, setMessageDrafts] = useState({});
   const [openThreadId, setOpenThreadId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -31,6 +39,7 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
   const [busyReview, setBusyReview] = useState(null);
   const [busyThreadLoad, setBusyThreadLoad] = useState(null);
   const [busyThreadSend, setBusyThreadSend] = useState(null);
+  const [busyDispute, setBusyDispute] = useState(null);
 
   async function fetchMine() {
     setBusy(true);
@@ -39,8 +48,10 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
         apiFetch("/bookings/mine", { onAuthError }),
         apiFetch("/reviews/mine", { onAuthError }),
       ]);
-      setMine(Array.isArray(bookings) ? bookings : []);
+      const list = Array.isArray(bookings) ? bookings : [];
+      setMine(list);
       setMyReviews(Array.isArray(reviews) ? reviews : []);
+      await Promise.all(list.map((b) => loadDispute(b.id, false)));
     } catch {
       setMine([]);
       setMyReviews([]);
@@ -96,6 +107,40 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
       notify(`Review error: ${err.message}`, "bad");
     } finally {
       setBusyReview(null);
+    }
+  }
+
+  async function loadDispute(bookingId, showError = true) {
+    try {
+      const dispute = await apiFetch(`/disputes/booking/${bookingId}`, { onAuthError });
+      setDisputesByBooking((prev) => ({ ...prev, [bookingId]: dispute }));
+    } catch (err) {
+      if (String(err?.message || "").includes("No dispute")) {
+        setDisputesByBooking((prev) => ({ ...prev, [bookingId]: null }));
+      } else if (showError) {
+        notify(`Dispute load error: ${err.message}`, "bad");
+      }
+    }
+  }
+
+  async function openDispute(bookingId) {
+    const reason = window.prompt("Dispute reason (short title):", "Vehicle issue");
+    if (!reason || !reason.trim()) return;
+    const details = window.prompt("Dispute details:", "Describe what happened.");
+
+    setBusyDispute(bookingId);
+    try {
+      await apiFetch(`/disputes/booking/${bookingId}`, {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ reason: reason.trim(), details: (details || "").trim() || null }),
+      });
+      notify(`Dispute opened for booking #${bookingId}`, "ok");
+      await loadDispute(bookingId);
+    } catch (err) {
+      notify(`Open dispute error: ${err.message}`, "bad");
+    } finally {
+      setBusyDispute(null);
     }
   }
 
@@ -168,6 +213,7 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
             const reviewDraft = reviewDrafts[b.id] || { rating: 5, comment: "" };
             const thread = messagesByBooking[b.id] || [];
             const threadOpen = openThreadId === b.id;
+            const dispute = disputesByBooking[b.id];
 
             return (
               <div className="rowCard" key={b.id}>
@@ -180,6 +226,11 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                   </div>
                   <div className="rowCardSub">
                     Status: <Badge tone={bookingStatusTone(b.status)}>{b.status}</Badge>
+                    {dispute ? (
+                      <span style={{ marginLeft: 8 }}>
+                        <Badge tone={disputeTone(dispute.status)}>Dispute: {dispute.status}</Badge>
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -200,6 +251,17 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                   >
                     {threadOpen ? "Hide Messages" : "Messages"}
                   </Button>
+
+                  {!dispute ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => openDispute(b.id)}
+                      loading={busyDispute === b.id}
+                      disabled={b.status === "PENDING"}
+                    >
+                      Open Dispute
+                    </Button>
+                  ) : null}
 
                   {canReview ? (
                     <>
@@ -286,10 +348,7 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                         onChange={(e) => setMessageDraft(b.id, e.target.value)}
                         placeholder="Write a message"
                       />
-                      <Button
-                        onClick={() => sendMessage(b.id)}
-                        loading={busyThreadSend === b.id}
-                      >
+                      <Button onClick={() => sendMessage(b.id)} loading={busyThreadSend === b.id}>
                         Send
                       </Button>
                     </div>
