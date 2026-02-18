@@ -2,6 +2,7 @@ services:
   db:
     image: postgres:16
     container_name: carhop_db
+    restart: always
     environment:
       POSTGRES_USER: carhop
       POSTGRES_PASSWORD: carhop
@@ -12,39 +13,41 @@ services:
       - carhop_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U carhop -d carhop"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build:
       context: ./backend
+      dockerfile: Dockerfile
     container_name: carhop_api
-    environment:
-      ENVIRONMENT: dev
-      DATABASE_URL: postgresql+psycopg://carhop:carhop@db:5432/carhop
+    restart: always
 
-      JWT_SECRET_KEY: "dev-secret-change-me"
-      JWT_ALGORITHM: "HS256"
-      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
-
-      REFRESH_TOKEN_PEPPER: "dev-refresh-pepper-change-me"
-
-      COOKIE_SECURE: "false"
-      COOKIE_SAMESITE: "lax"
-      COOKIE_DOMAIN: ""
-
-      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
-
-      SQL_ECHO: "false"
-
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
     depends_on:
       db:
         condition: service_healthy
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://carhop:carhop@carhop_db:5432/carhop
+      JWT_SECRET_KEY: dev-secret-change-me
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+      REFRESH_TOKEN_PEPPER: dev-refresh-pepper-change-me
+      REFRESH_TOKEN_EXPIRE_DAYS: "30"
+      UPLOADS_DIR: /app/uploads
+      COOKIE_SECURE: "false"
+      COOKIE_HTTPONLY: "true"
+      COOKIE_SAMESITE: lax
+      STORAGE_BACKEND: local
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+      - ./backend/uploads:/app/uploads
 
 volumes:
   carhop_db_data:

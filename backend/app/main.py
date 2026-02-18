@@ -1,27 +1,35 @@
 #backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
+from app.routers.auth import router as auth_router
+from app.routers.profile import router as profile_router
+from app.routers.cars import router as cars_router
+from app.routers.bookings import router as bookings_router
 from app.config import settings
-from app.routers import auth, cars, bookings, profile
 
-app = FastAPI()
+app = FastAPI(title="CarHop API")
 
-origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-
+# CORS for dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(cars.router)
-app.include_router(bookings.router)
-app.include_router(profile.router)
+# Routers
+app.include_router(auth_router)
+app.include_router(profile_router)
+app.include_router(cars_router)
+app.include_router(bookings_router)
+
+
+app.mount("/uploads", StaticFiles(directory=settings.uploads_dir), name="uploads")
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "carhop-api", "env": settings.environment}
+    return {"status": "ok"}

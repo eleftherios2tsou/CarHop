@@ -1,7 +1,9 @@
 # backend/app/models/user.py
 import sqlalchemy as sa
-from sqlalchemy import Boolean, Date, String
+from datetime import datetime
+from sqlalchemy import Boolean, Date, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
 
 from app.database import Base
 
@@ -34,4 +36,10 @@ class User(Base):
         nullable=False,
         default="USER",
         server_default="USER",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )

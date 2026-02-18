@@ -7,28 +7,44 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Core
-    environment: str = Field(default="dev")  # dev | prod
-    database_url: str
+    # Database
+    database_url: str = Field(..., alias="DATABASE_URL")
+    sql_echo: bool = Field(default=False, alias="SQL_ECHO")
 
     # JWT
-    jwt_secret_key: str
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60  # 1 hour
+    jwt_secret_key: str = Field("dev-secret-change-me", alias="JWT_SECRET_KEY")
+    jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
 
-    # Refresh hashing
-    refresh_token_pepper: str
+    # Refresh tokens
+    refresh_token_pepper: str = Field(
+        "dev-refresh-pepper-change-me",
+        alias="REFRESH_TOKEN_PEPPER",
+    )
+    refresh_token_expire_days: int = Field(
+        30,
+        alias="REFRESH_TOKEN_EXPIRE_DAYS",
+    )
+
+    # Uploads
+    uploads_dir: str = Field("/app/uploads", alias="UPLOADS_DIR")
+    storage_backend: str = Field("local", alias="STORAGE_BACKEND")  # local | (future: s3)
+    s3_bucket: str | None = Field(None, alias="S3_BUCKET")
+    s3_region: str | None = Field(None, alias="S3_REGION")
+    s3_access_key_id: str | None = Field(None, alias="S3_ACCESS_KEY_ID")
+    s3_secret_access_key: str | None = Field(None, alias="S3_SECRET_ACCESS_KEY")
+    s3_endpoint_url: str | None = Field(None, alias="S3_ENDPOINT_URL")
 
     # Cookies
-    cookie_secure: bool = False
-    cookie_samesite: str = "lax"  # "lax" or "strict" (avoid "none" unless HTTPS)
-    cookie_domain: str | None = None
 
-    # CORS
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cookie_secure: bool = Field(False, alias="COOKIE_SECURE")
+    cookie_httponly: bool = Field(True, alias="COOKIE_HTTPONLY")
+    cookie_samesite: str = Field("lax", alias="COOKIE_SAMESITE")
+    cookie_domain: str | None = Field(None, alias="COOKIE_DOMAIN")
 
-    # SQLAlchemy
-    sql_echo: bool = False
+    # Optional
+    api_base_url: str = Field("http://localhost:8000", alias="API_BASE_URL")
+    cors_origins: str = Field("*", alias="CORS_ORIGINS")
 
 
 settings = Settings()

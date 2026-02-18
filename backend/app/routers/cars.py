@@ -1,17 +1,26 @@
-# backend/app/routers/cars.py
+# backend/app/routers/car.py
+from __future__ import annotations
+
+import os
+from uuid import uuid4
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, exists, select
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import and_, exists, func, select
 
+from app.config import settings
 from app.deps import get_db, get_current_user, csrf_protect
 from app.models.car import CarListing
+from app.models.car_photo import CarPhoto
 from app.models.booking import BookingRequest
 from app.models.user import User
-from app.schemas.car import CarCreate, CarOut
+from app.schemas.car import CarCreate, CarOut, CarDetailOut, CarPhotosOut, CarUpdate
 
 router = APIRouter(prefix="/cars", tags=["cars"])
+
+MAX_PHOTOS_PER_CAR = 8
+ALLOWED_PREFIX = "image/"
 
 
 def validate_range(from_date: date | None, to_date: date | None):
@@ -21,42 +30,311 @@ def validate_range(from_date: date | None, to_date: date | None):
         raise HTTPException(status_code=400, detail="'to' must be on/after 'from'")
 
 
+def _ensure_owner_or_admin(car: CarListing, current_user: User):
+    if car.owner_id != current_user.id and current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Not allowed to modify this car")
+
+
+def _save_local_upload(car_id: int, up: UploadFile) -> tuple[str, str]:
+    if not up.content_type or not up.content_type.startswith(ALLOWED_PREFIX):
+        raise HTTPException(status_code=400, detail=f"Only images are allowed ({ALLOWED_PREFIX}*)")
+
+    _, ext = os.path.splitext(up.filename or "")
+    ext = (ext or "").lower()
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+        ext = ".jpg"
+
+    name = f"{uuid4().hex}{ext}"
+    storage_key = f"cars/{car_id}/{name}"
+
+    disk_path = os.path.join(settings.uploads_dir, storage_key)
+    os.makedirs(os.path.dirname(disk_path), exist_ok=True)
+
+    contents = up.file.read()
+    with open(disk_path, "wb") as f:
+        f.write(contents)
+
+    url = f"/uploads/{storage_key}"
+    return storage_key, url
+
+
+# =========================
+# LIST MARKETPLACE CARS
+# =========================
 @router.get("/", response_model=list[CarOut])
 def list_cars(
     db: Session = Depends(get_db),
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
+    city: str | None = Query(default=None),
+    min_price: int | None = Query(default=None, ge=1),
+    max_price: int | None = Query(default=None, ge=1),
+    transmission: str | None = Query(default=None),
+    fuel_type: str | None = Query(default=None),
+    min_seats: int | None = Query(default=None, ge=1),
 ):
     validate_range(from_date, to_date)
 
-    q = db.query(CarListing)
+    q = db.query(CarListing).options(
+        selectinload(CarListing.photos),
+        selectinload(CarListing.owner),
+    )
 
     if from_date and to_date:
-        overlap_exists = (
-            exists(
-                select(1).where(
-                    BookingRequest.car_id == CarListing.id,
-                    BookingRequest.status == "APPROVED",
-                    and_(
-                        BookingRequest.start_date <= to_date,
-                        BookingRequest.end_date >= from_date,
-                    ),
-                )
+        overlap_exists = exists(
+            select(1).where(
+                BookingRequest.car_id == CarListing.id,
+                BookingRequest.status == "APPROVED",
+                and_(
+                    BookingRequest.start_date <= to_date,
+                    BookingRequest.end_date >= from_date,
+                ),
             )
         )
         q = q.filter(~overlap_exists)
 
-    return q.order_by(CarListing.id.desc()).all()
+    if city:
+        q = q.filter(CarListing.city.ilike(f"%{city}%"))
+    if min_price is not None:
+        q = q.filter(CarListing.daily_price >= min_price)
+    if max_price is not None:
+        q = q.filter(CarListing.daily_price <= max_price)
+    if transmission:
+        q = q.filter(CarListing.transmission == transmission)
+    if fuel_type:
+        q = q.filter(CarListing.fuel_type == fuel_type)
+    if min_seats is not None:
+        q = q.filter(CarListing.seats >= min_seats)
+
+    cars = q.order_by(CarListing.id.desc()).all()
+
+    if cars:
+        owner_ids = list({c.owner_id for c in cars})
+        count_rows = (
+            db.query(CarListing.owner_id, func.count(CarListing.id).label("cnt"))
+            .filter(CarListing.owner_id.in_(owner_ids))
+            .group_by(CarListing.owner_id)
+            .all()
+        )
+        count_map = {row.owner_id: row.cnt for row in count_rows}
+        for car in cars:
+            if car.owner:
+                car.owner.listing_count = count_map.get(car.owner_id, 0)
+                car.owner.member_since = car.owner.created_at
+
+    return cars
 
 
+# =========================
+# MY LISTINGS (IMPORTANT: define before /{car_id})
+# =========================
+@router.get("/mine", response_model=list[CarOut])
+def my_listings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.owner_id == current_user.id)
+        .order_by(CarListing.id.desc())
+        .all()
+    )
+
+
+# =========================
+# GET CAR DETAIL
+# =========================
+@router.get("/{car_id}", response_model=CarDetailOut)
+def get_car(car_id: int, db: Session = Depends(get_db)):
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+    return car
+
+
+# =========================
+# CREATE CAR
+# =========================
 @router.post("/", response_model=CarOut, dependencies=[Depends(csrf_protect)])
 def create_car(
     payload: CarCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    car = CarListing(owner_id=current_user.id, **payload.dict())
+    car = CarListing(owner_id=current_user.id, **payload.model_dump())
     db.add(car)
     db.commit()
     db.refresh(car)
     return car
+
+
+# =========================
+# UPLOAD PHOTOS
+# =========================
+@router.post("/{car_id}/photos", response_model=CarPhotosOut, dependencies=[Depends(csrf_protect)])
+def upload_car_photos(
+    car_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+
+    _ensure_owner_or_admin(car, current_user)
+
+    existing = len(car.photos or [])
+    incoming = len(files or [])
+    if incoming == 0:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    if existing + incoming > MAX_PHOTOS_PER_CAR:
+        raise HTTPException(status_code=400, detail=f"Max {MAX_PHOTOS_PER_CAR} photos per car")
+
+    next_pos = max([p.position for p in car.photos], default=-1) + 1
+
+    for up in files:
+        if settings.storage_backend != "local":
+            raise HTTPException(status_code=501, detail="S3 storage not enabled yet")
+
+        storage_key, url = _save_local_upload(car_id, up)
+        photo = CarPhoto(car_id=car_id, storage_key=storage_key, url=url, position=next_pos)
+        next_pos += 1
+        db.add(photo)
+
+    db.commit()
+
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    return {"car_id": car_id, "photo_urls": car.photo_urls}
+
+
+# =========================
+# DELETE CAR LISTING
+# =========================
+@router.delete("/{car_id}", dependencies=[Depends(csrf_protect)])
+def delete_car(
+    car_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+
+    _ensure_owner_or_admin(car, current_user)
+
+    # delete local files (if local storage)
+    if settings.storage_backend == "local":
+        for p in car.photos or []:
+            disk_path = os.path.join(settings.uploads_dir, p.storage_key)
+            try:
+                if os.path.exists(disk_path):
+                    os.remove(disk_path)
+            except Exception:
+                pass
+
+    db.delete(car)
+    db.commit()
+
+    return {"ok": True, "deleted_id": car_id}
+
+
+# =========================
+# PATCH UPDATE LISTING
+# =========================
+@router.patch("/{car_id}", response_model=CarOut, dependencies=[Depends(csrf_protect)])
+def update_car(
+    car_id: int,
+    payload: CarUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+
+    _ensure_owner_or_admin(car, current_user)
+
+    data = payload.model_dump(exclude_unset=True)
+
+    if "daily_price" in data and data["daily_price"] is not None and data["daily_price"] < 1:
+        raise HTTPException(status_code=400, detail="Invalid daily_price")
+
+    if "year" in data and data["year"] is not None and data["year"] < 1900:
+        raise HTTPException(status_code=400, detail="Invalid year")
+
+    for k, v in data.items():
+        setattr(car, k, v)
+
+    db.commit()
+    db.refresh(car)
+    return car
+
+
+# =========================
+# DELETE PHOTO
+# =========================
+@router.delete("/{car_id}/photos/{photo_id}", dependencies=[Depends(csrf_protect)])
+def delete_car_photo(
+    car_id: int,
+    photo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+
+    _ensure_owner_or_admin(car, current_user)
+
+    photo = (
+        db.query(CarPhoto)
+        .filter(CarPhoto.id == photo_id, CarPhoto.car_id == car_id)
+        .first()
+    )
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    if settings.storage_backend == "local":
+        disk_path = os.path.join(settings.uploads_dir, photo.storage_key)
+        try:
+            if os.path.exists(disk_path):
+                os.remove(disk_path)
+        except Exception:
+            pass
+
+    db.delete(photo)
+    db.commit()
+
+    return {"ok": True, "deleted_photo_id": photo_id}
