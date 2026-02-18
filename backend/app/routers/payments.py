@@ -300,6 +300,41 @@ def release_escrow_to_owner(
     if _has_open_dispute(db, booking_id):
         raise HTTPException(status_code=400, detail="Cannot release while dispute is open")
 
+    owner = db.get(User, owner_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+    if payment.provider == STRIPE_PROVIDER and not owner.stripe_account_onboarded:
+        raise HTTPException(status_code=400, detail="Owner payout account is not connected")
+
+    if payment.provider == STRIPE_PROVIDER:
+        if not payment.provider_ref:
+            raise HTTPException(status_code=400, detail="Stripe checkout session reference missing")
+        if not owner.stripe_account_id:
+            raise HTTPException(status_code=400, detail="Owner Stripe account is missing")
+        _set_stripe_key()
+        try:
+            session = stripe.checkout.Session.retrieve(payment.provider_ref, expand=["payment_intent.latest_charge"])
+            payment_intent = session.get("payment_intent")
+            if isinstance(payment_intent, dict):
+                latest_charge = payment_intent.get("latest_charge")
+                charge_id = latest_charge.get("id") if isinstance(latest_charge, dict) else latest_charge
+            else:
+                charge_id = None
+            if not charge_id:
+                raise HTTPException(status_code=400, detail="Stripe source charge not found for payout transfer")
+
+            stripe.Transfer.create(
+                amount=int(payment.payout_amount * 100),  # pounds -> pence
+                currency=settings.payments_currency.lower(),
+                destination=owner.stripe_account_id,
+                source_transaction=charge_id,
+                metadata={"payment_id": str(payment.id), "booking_id": str(booking_id)},
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Stripe transfer failed: {exc}")
+
     payment.status = "RELEASED_TO_OWNER"
     payment.released_at = datetime.now(timezone.utc)
     db.commit()

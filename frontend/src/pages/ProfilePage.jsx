@@ -20,6 +20,8 @@ export default function ProfilePage({
   const [adminVerifyUserId, setAdminVerifyUserId] = useState("1");
   const [busyLicense, setBusyLicense] = useState(false);
   const [busyAdmin, setBusyAdmin] = useState(false);
+  const [busyPayoutConnect, setBusyPayoutConnect] = useState(false);
+  const [busyPayoutRefresh, setBusyPayoutRefresh] = useState(false);
 
   // Pre-fill license fields from profile
   useEffect(() => {
@@ -29,6 +31,22 @@ export default function ProfilePage({
       if (profile.license.expiry_date) setExpiryDate(profile.license.expiry_date);
     }
   }, [profile?.license]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connect = params.get("connect");
+    if (!connect || !isAuthed) return;
+
+    if (connect === "return" || connect === "refresh") {
+      refreshPayoutStatus(false);
+    }
+
+    params.delete("connect");
+    const q = params.toString();
+    const nextUrl = `${window.location.pathname}${q ? `?${q}` : ""}`;
+    window.history.replaceState({}, "", nextUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed]);
 
   async function submitLicense(e) {
     e.preventDefault();
@@ -63,6 +81,40 @@ export default function ProfilePage({
       notify(`Admin verify error: ${err.message}`, "bad");
     } finally {
       setBusyAdmin(false);
+    }
+  }
+
+  async function startPayoutOnboarding() {
+    setBusyPayoutConnect(true);
+    try {
+      const data = await apiFetch("/profile/payout/onboard", { method: "POST", onAuthError });
+      if (data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+      notify("Payout onboarding link not returned", "bad");
+    } catch (err) {
+      notify(`Payout connect error: ${err.message}`, "bad");
+    } finally {
+      setBusyPayoutConnect(false);
+    }
+  }
+
+  async function refreshPayoutStatus(showToast = true) {
+    setBusyPayoutRefresh(true);
+    try {
+      const data = await apiFetch("/profile/payout/refresh", { method: "POST", onAuthError });
+      await onProfileUpdated();
+      if (showToast) {
+        notify(
+          data?.payout_connected ? "Payout account connected ✅" : "Payout account not fully onboarded yet",
+          data?.payout_connected ? "ok" : "warn"
+        );
+      }
+    } catch (err) {
+      notify(`Payout status error: ${err.message}`, "bad");
+    } finally {
+      setBusyPayoutRefresh(false);
     }
   }
 
@@ -146,6 +198,16 @@ export default function ProfilePage({
                 )}
               </div>
             </div>
+            <div className="kv">
+              <div className="k">Payout account</div>
+              <div className="v">
+                {profile.payout_connected ? (
+                  <Badge tone="ok">Connected</Badge>
+                ) : (
+                  <Badge tone="warn">Not connected</Badge>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </Card>
@@ -202,6 +264,27 @@ export default function ProfilePage({
             Verification is done by an admin.
           </div>
         )}
+
+        <div className="divider" />
+        <div className="form">
+          <div className="tiny muted" style={{ marginBottom: 8 }}>
+            Owner payouts: connect Stripe account to receive released escrow funds.
+          </div>
+          <Button onClick={startPayoutOnboarding} disabled={!isAuthed} loading={busyPayoutConnect}>
+            Connect Payout Account
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => refreshPayoutStatus(true)}
+            disabled={!isAuthed}
+            loading={busyPayoutRefresh}
+          >
+            Refresh Payout Status
+          </Button>
+          {profile?.payout_account_id ? (
+            <div className="tiny muted">Account: {profile.payout_account_id}</div>
+          ) : null}
+        </div>
       </Card>
     </div>
   );

@@ -15,6 +15,8 @@ class ProfileOut(BaseModel):
     has_license: bool
     license_verified: bool
     profile_complete: bool
+    payout_connected: bool
+    payout_account_id: str | None = None
 
     class Config:
         from_attributes = True

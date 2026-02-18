@@ -43,3 +43,11 @@ class User(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+    stripe_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    stripe_account_onboarded: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.text("false"),
+    )

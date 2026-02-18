@@ -235,7 +235,9 @@ Date: 2026-02-18
 5. **Payments/escrow flow (Stripe test mode + fallback simulation)**
 - Renter can start checkout via Stripe-hosted Checkout Session.
 - Webhook (`/payments/stripe/webhook`) is used to mark escrow funded.
+- Owners can start Stripe Connect onboarding from profile and refresh payout connection status.
 - Owner/admin can release escrow only after booking end date.
+- Stripe-funded escrow release now attempts a Stripe transfer to the connected owner account.
 - Admin can trigger refund (Stripe API path when provider is Stripe).
 - Release/payment is blocked when an open dispute exists.
 - Backend additions:
@@ -258,7 +260,9 @@ Date: 2026-02-18
   - `backend/tests/test_dispute_smoke.py`
   - `backend/tests/test_payment_escrow_smoke.py`
   - `backend/tests/test_stripe_webhook_smoke.py`
-- Last known result: `5 passed`.
+  - `backend/tests/test_stripe_connect_onboarding_smoke.py`
+  - `backend/tests/test_stripe_release_requires_connected_owner.py`
+- Last known result: `7 passed`.
 
 ### Required migration command when pulling this state
 Run after starting API container:
@@ -274,7 +278,8 @@ docker compose exec api alembic upgrade head
 - Disputes: done
 - Payments/escrow (simulated fallback): done
 - Stripe test mode + webhook: done
-- Next major item: Stripe Connect/transfer-based true escrow payout automation
+- Stripe Connect onboarding + release transfer path: done
+- Next major item: harden Stripe Connect for production (capabilities/onboarding edge cases, idempotent transfer ledgering, and failure recovery)
 
 2. UI + feature polish for production readiness:
 - Partially improved in booking pages (messaging/dispute UI)
@@ -286,7 +291,7 @@ docker compose exec api alembic upgrade head
 6. Ops and compliance: pending
 
 ### Recommended next implementation step
-- Implement Stripe Connect payout automation:
-  - onboard owners as connected accounts
-  - release escrow by creating transfer/payout on owner release
-  - move refund/reversal handling to provider-level transfer semantics
+- Harden payment operations and reliability:
+  - add idempotency keys + transfer IDs persisted in DB
+  - add webhook event persistence/replay protection
+  - add reconciliation job for payments stuck in `PAYMENT_PENDING`/transfer-failed states
