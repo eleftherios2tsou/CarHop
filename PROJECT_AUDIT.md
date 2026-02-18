@@ -186,3 +186,88 @@ This project is already in a good “MVP-plus” state: the foundations for auth
 - Define DB/uploads backup and restore drills.
 - Add admin/audit trails for high-risk actions.
 - Prepare core legal docs (Terms, Privacy, cancellation policy) and data retention policy.
+
+## 13) Current build status (handoff snapshot)
+
+Date: 2026-02-18
+
+### Completed in current development cycle
+
+1. **Listing publish flow stabilized**
+- Backend create listing + photo upload is working.
+- Smoke test added for publish flow:
+  - `backend/tests/test_publish_listing_smoke.py`
+
+2. **Trust feature: reviews/ratings**
+- Renter can leave one review per completed approved booking.
+- Owner rating metadata is surfaced in marketplace cards.
+- Backend additions:
+  - `backend/app/models/review.py`
+  - `backend/app/schemas/review.py`
+  - `backend/app/routers/reviews.py`
+  - `backend/alembic/versions/8a1d2f4c9b01_create_reviews_table.py`
+
+3. **Trust feature: renter-owner booking messaging**
+- Booking thread messages between renter and owner.
+- Participant-only access control enforced server-side.
+- Backend additions:
+  - `backend/app/models/message.py`
+  - `backend/app/schemas/message.py`
+  - `backend/app/routers/messages.py`
+  - `backend/alembic/versions/bf2c7a11d932_create_messages_table.py`
+- Frontend wiring:
+  - `frontend/src/pages/MyBookingsPage.jsx`
+  - `frontend/src/pages/IncomingBookingsPage.jsx`
+
+4. **Trust feature: disputes flow**
+- Renter/owner can open dispute for non-pending bookings.
+- Admin can list open disputes and resolve/reject with a note.
+- Backend additions:
+  - `backend/app/models/dispute.py`
+  - `backend/app/schemas/dispute.py`
+  - `backend/app/routers/disputes.py`
+  - `backend/alembic/versions/c3d8e21aa7f0_create_disputes_table.py`
+- Frontend wiring:
+  - `frontend/src/pages/MyBookingsPage.jsx`
+  - `frontend/src/pages/IncomingBookingsPage.jsx`
+  - `frontend/src/pages/AdminPage.jsx`
+
+### Router/model wiring completed
+- `backend/app/main.py` includes routers for reviews, messages, and disputes.
+- `backend/app/models/__init__.py` includes `Review`, `Message`, and `Dispute`.
+
+### Test status
+- Container smoke suite passing:
+  - `backend/tests/test_publish_listing_smoke.py`
+  - `backend/tests/test_booking_messages_smoke.py`
+  - `backend/tests/test_dispute_smoke.py`
+- Last known result: `3 passed`.
+
+### Required migration command when pulling this state
+Run after starting API container:
+
+```bash
+docker compose exec api alembic upgrade head
+```
+
+### Current roadmap progress (from Section 12)
+1. Product-complete trust features:
+- Reviews/ratings: done
+- Messaging: done
+- Disputes: done
+- Payments/escrow: **next major item**
+
+2. UI + feature polish for production readiness:
+- Partially improved in booking pages (messaging/dispute UI)
+- Full polish pass still pending
+
+3. Reliable deploy path: pending
+4. Security baseline: pending
+5. Test coverage: in progress (smoke coverage added, broader integration suite pending)
+6. Ops and compliance: pending
+
+### Recommended next implementation step
+- Start payments/escrow domain and lifecycle:
+  - payment model + migration
+  - booking-payment status transitions
+  - Stripe test-mode integration with webhook source of truth
