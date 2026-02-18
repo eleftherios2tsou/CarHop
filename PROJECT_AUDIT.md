@@ -134,7 +134,7 @@ Alembic migrations exist for baseline schema plus iterative changes (user defaul
 ### Risks / improvement opportunities
 1. **Secrets committed in Compose** (SMTP credentials visible). Move all secrets to `.env`/secret manager immediately.
 2. CORS origins are hardcoded in app startup; align with env-driven config for multi-env deploys.
-3. No payment integration yet; booking lifecycle currently trust-based.
+3. Payments are currently simulated (no real processor/webhooks yet); move to Stripe (or equivalent) before production.
 4. Booking status is stringly-typed; introducing enum constraints can reduce data drift.
 5. Consider explicit rate limiting + auth brute-force mitigation for login/verify endpoints.
 
@@ -232,16 +232,31 @@ Date: 2026-02-18
   - `frontend/src/pages/IncomingBookingsPage.jsx`
   - `frontend/src/pages/AdminPage.jsx`
 
+5. **Payments/escrow flow (simulated provider)**
+- Renter can pay approved bookings into escrow.
+- Owner/admin can release escrow only after booking end date.
+- Admin can refund paid/released bookings.
+- Release/payment is blocked when an open dispute exists.
+- Backend additions:
+  - `backend/app/models/payment.py`
+  - `backend/app/schemas/payment.py`
+  - `backend/app/routers/payments.py`
+  - `backend/alembic/versions/f4a7d2c6b1e0_create_payments_table.py`
+- Frontend wiring:
+  - `frontend/src/pages/MyBookingsPage.jsx`
+  - `frontend/src/pages/IncomingBookingsPage.jsx`
+
 ### Router/model wiring completed
-- `backend/app/main.py` includes routers for reviews, messages, and disputes.
-- `backend/app/models/__init__.py` includes `Review`, `Message`, and `Dispute`.
+- `backend/app/main.py` includes routers for reviews, messages, disputes, and payments.
+- `backend/app/models/__init__.py` includes `Review`, `Message`, `Dispute`, and `Payment`.
 
 ### Test status
 - Container smoke suite passing:
   - `backend/tests/test_publish_listing_smoke.py`
   - `backend/tests/test_booking_messages_smoke.py`
   - `backend/tests/test_dispute_smoke.py`
-- Last known result: `3 passed`.
+  - `backend/tests/test_payment_escrow_smoke.py`
+- Last known result: `4 passed`.
 
 ### Required migration command when pulling this state
 Run after starting API container:
@@ -255,7 +270,8 @@ docker compose exec api alembic upgrade head
 - Reviews/ratings: done
 - Messaging: done
 - Disputes: done
-- Payments/escrow: **next major item**
+- Payments/escrow (simulated): done
+- Real processor integration (Stripe + webhooks): **next major item**
 
 2. UI + feature polish for production readiness:
 - Partially improved in booking pages (messaging/dispute UI)
@@ -267,7 +283,7 @@ docker compose exec api alembic upgrade head
 6. Ops and compliance: pending
 
 ### Recommended next implementation step
-- Start payments/escrow domain and lifecycle:
-  - payment model + migration
-  - booking-payment status transitions
-  - Stripe test-mode integration with webhook source of truth
+- Integrate Stripe test mode as payment source of truth:
+  - create PaymentIntent/Checkout session
+  - consume webhook events for paid/refunded transitions
+  - reconcile webhook state with escrow release/refund rules

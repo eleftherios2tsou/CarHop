@@ -18,10 +18,18 @@ function disputeTone(status) {
   return "warn";
 }
 
+function paymentTone(status) {
+  if (status === "HELD_IN_ESCROW") return "warn";
+  if (status === "RELEASED_TO_OWNER") return "ok";
+  if (status === "REFUNDED") return "bad";
+  return "warn";
+}
+
 export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuthError }) {
   const [incoming, setIncoming] = useState([]);
   const [messagesByBooking, setMessagesByBooking] = useState({});
   const [disputesByBooking, setDisputesByBooking] = useState({});
+  const [paymentsByBooking, setPaymentsByBooking] = useState({});
   const [messageDrafts, setMessageDrafts] = useState({});
   const [openThreadId, setOpenThreadId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -29,6 +37,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
   const [busyThreadLoad, setBusyThreadLoad] = useState(null);
   const [busyThreadSend, setBusyThreadSend] = useState(null);
   const [busyDispute, setBusyDispute] = useState(null);
+  const [busyPaymentAction, setBusyPaymentAction] = useState(null);
 
   async function fetchIncoming() {
     setBusy(true);
@@ -37,6 +46,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       const list = Array.isArray(data) ? data : [];
       setIncoming(list);
       await Promise.all(list.map((b) => loadDispute(b.id, false)));
+      await Promise.all(list.map((b) => loadPayment(b.id, false)));
     } catch {
       setIncoming([]);
     } finally {
@@ -85,6 +95,35 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       } else if (showError) {
         notify(`Dispute load error: ${err.message}`, "bad");
       }
+    }
+  }
+
+  async function loadPayment(bookingId, showError = true) {
+    try {
+      const payment = await apiFetch(`/payments/booking/${bookingId}`, { onAuthError });
+      setPaymentsByBooking((prev) => ({ ...prev, [bookingId]: payment }));
+    } catch (err) {
+      if (String(err?.message || "").includes("No payment")) {
+        setPaymentsByBooking((prev) => ({ ...prev, [bookingId]: null }));
+      } else if (showError) {
+        notify(`Payment load error: ${err.message}`, "bad");
+      }
+    }
+  }
+
+  async function releaseEscrow(bookingId) {
+    setBusyPaymentAction(bookingId);
+    try {
+      await apiFetch(`/payments/booking/${bookingId}/release`, {
+        method: "POST",
+        onAuthError,
+      });
+      notify(`Escrow released for booking #${bookingId}`, "ok");
+      await loadPayment(bookingId);
+    } catch (err) {
+      notify(`Escrow release error: ${err.message}`, "bad");
+    } finally {
+      setBusyPaymentAction(null);
     }
   }
 
@@ -175,6 +214,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
             const thread = messagesByBooking[b.id] || [];
             const threadOpen = openThreadId === b.id;
             const dispute = disputesByBooking[b.id];
+            const payment = paymentsByBooking[b.id];
 
             return (
               <div className="rowCard" key={b.id}>
@@ -191,6 +231,11 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                     {dispute ? (
                       <span style={{ marginLeft: 8 }}>
                         <Badge tone={disputeTone(dispute.status)}>Dispute: {dispute.status}</Badge>
+                      </span>
+                    ) : null}
+                    {payment ? (
+                      <span style={{ marginLeft: 8 }}>
+                        <Badge tone={paymentTone(payment.status)}>Payment: {payment.status}</Badge>
                       </span>
                     ) : null}
                   </div>
@@ -235,6 +280,16 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                       disabled={b.status === "PENDING"}
                     >
                       Open Dispute
+                    </Button>
+                  ) : null}
+
+                  {payment?.status === "HELD_IN_ESCROW" ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => releaseEscrow(b.id)}
+                      loading={busyPaymentAction === b.id}
+                    >
+                      Release Escrow
                     </Button>
                   ) : null}
                 </div>
