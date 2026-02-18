@@ -134,7 +134,7 @@ Alembic migrations exist for baseline schema plus iterative changes (user defaul
 ### Risks / improvement opportunities
 1. **Secrets committed in Compose** (SMTP credentials visible). Move all secrets to `.env`/secret manager immediately.
 2. CORS origins are hardcoded in app startup; align with env-driven config for multi-env deploys.
-3. Payments are currently simulated (no real processor/webhooks yet); move to Stripe (or equivalent) before production.
+3. Stripe test-mode checkout + webhook ingestion is now implemented, but payouts/escrow release are still app-managed (not Stripe Connect).
 4. Booking status is stringly-typed; introducing enum constraints can reduce data drift.
 5. Consider explicit rate limiting + auth brute-force mitigation for login/verify endpoints.
 
@@ -232,10 +232,11 @@ Date: 2026-02-18
   - `frontend/src/pages/IncomingBookingsPage.jsx`
   - `frontend/src/pages/AdminPage.jsx`
 
-5. **Payments/escrow flow (simulated provider)**
-- Renter can pay approved bookings into escrow.
+5. **Payments/escrow flow (Stripe test mode + fallback simulation)**
+- Renter can start checkout via Stripe-hosted Checkout Session.
+- Webhook (`/payments/stripe/webhook`) is used to mark escrow funded.
 - Owner/admin can release escrow only after booking end date.
-- Admin can refund paid/released bookings.
+- Admin can trigger refund (Stripe API path when provider is Stripe).
 - Release/payment is blocked when an open dispute exists.
 - Backend additions:
   - `backend/app/models/payment.py`
@@ -256,7 +257,8 @@ Date: 2026-02-18
   - `backend/tests/test_booking_messages_smoke.py`
   - `backend/tests/test_dispute_smoke.py`
   - `backend/tests/test_payment_escrow_smoke.py`
-- Last known result: `4 passed`.
+  - `backend/tests/test_stripe_webhook_smoke.py`
+- Last known result: `5 passed`.
 
 ### Required migration command when pulling this state
 Run after starting API container:
@@ -270,8 +272,9 @@ docker compose exec api alembic upgrade head
 - Reviews/ratings: done
 - Messaging: done
 - Disputes: done
-- Payments/escrow (simulated): done
-- Real processor integration (Stripe + webhooks): **next major item**
+- Payments/escrow (simulated fallback): done
+- Stripe test mode + webhook: done
+- Next major item: Stripe Connect/transfer-based true escrow payout automation
 
 2. UI + feature polish for production readiness:
 - Partially improved in booking pages (messaging/dispute UI)
@@ -283,7 +286,7 @@ docker compose exec api alembic upgrade head
 6. Ops and compliance: pending
 
 ### Recommended next implementation step
-- Integrate Stripe test mode as payment source of truth:
-  - create PaymentIntent/Checkout session
-  - consume webhook events for paid/refunded transitions
-  - reconcile webhook state with escrow release/refund rules
+- Implement Stripe Connect payout automation:
+  - onboard owners as connected accounts
+  - release escrow by creating transfer/payout on owner release
+  - move refund/reversal handling to provider-level transfer semantics

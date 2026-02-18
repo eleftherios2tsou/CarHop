@@ -53,5 +53,11 @@ class Settings(BaseSettings):
     api_base_url: str = Field("http://localhost:8000", alias="API_BASE_URL")
     cors_origins: str = Field("*", alias="CORS_ORIGINS")
 
+    # Stripe payments
+    stripe_secret_key: str | None = Field(None, alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str | None = Field(None, alias="STRIPE_WEBHOOK_SECRET")
+    frontend_base_url: str = Field("http://localhost:5173", alias="FRONTEND_BASE_URL")
+    payments_currency: str = Field("gbp", alias="PAYMENTS_CURRENCY")
+
 
 settings = Settings()

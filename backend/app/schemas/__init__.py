@@ -2,4 +2,4 @@
 from .auth import RegisterIn, LoginIn, TokenOut
 from .license import LicenseIn, LicenseOut
 from .profile import ProfileOut
-from .payment import PaymentOut
+from .payment import PaymentOut, PaymentCheckoutOut

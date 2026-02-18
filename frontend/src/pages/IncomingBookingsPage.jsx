@@ -21,6 +21,7 @@ function disputeTone(status) {
 function paymentTone(status) {
   if (status === "HELD_IN_ESCROW") return "warn";
   if (status === "RELEASED_TO_OWNER") return "ok";
+  if (status === "PAYMENT_FAILED") return "bad";
   if (status === "REFUNDED") return "bad";
   return "warn";
 }

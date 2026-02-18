@@ -21,6 +21,7 @@ function disputeTone(status) {
 function paymentTone(status) {
   if (status === "HELD_IN_ESCROW") return "warn";
   if (status === "RELEASED_TO_OWNER") return "ok";
+  if (status === "PAYMENT_FAILED") return "bad";
   if (status === "REFUNDED") return "bad";
   return "warn";
 }
@@ -149,7 +150,12 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
   async function payEscrow(bookingId) {
     setBusyPay(bookingId);
     try {
-      await apiFetch(`/payments/booking/${bookingId}/pay`, { method: "POST", onAuthError });
+      const data = await apiFetch(`/payments/booking/${bookingId}/pay`, { method: "POST", onAuthError });
+      if (data?.checkout_url) {
+        notify("Redirecting to Stripe Checkout...", "info");
+        window.location.assign(data.checkout_url);
+        return;
+      }
       notify(`Escrow funded for booking #${bookingId}`, "ok");
       await loadPayment(bookingId);
     } catch (err) {
@@ -251,7 +257,8 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
             const threadOpen = openThreadId === b.id;
             const dispute = disputesByBooking[b.id];
             const payment = paymentsByBooking[b.id];
-            const canPayEscrow = b.status === "APPROVED" && !payment;
+            const canPayEscrow =
+              b.status === "APPROVED" && (!payment || payment.status === "PAYMENT_FAILED");
 
             return (
               <div className="rowCard" key={b.id}>

@@ -65,7 +65,9 @@ def test_escrow_payment_can_be_paid_and_released(client):
 
     pay_res = test_client.post(f"/payments/booking/{booking.id}/pay")
     assert pay_res.status_code == 200, pay_res.text
-    payment = pay_res.json()
+    body = pay_res.json()
+    assert body["checkout_url"] is None
+    payment = body["payment"]
     assert payment["booking_id"] == booking.id
     assert payment["status"] == "HELD_IN_ESCROW"
     assert payment["amount_total"] == 300

@@ -22,3 +22,9 @@ class PaymentOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PaymentCheckoutOut(BaseModel):
+    checkout_url: str | None = None
+    checkout_session_id: str | None = None
+    payment: PaymentOut
