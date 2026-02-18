@@ -39,6 +39,10 @@ class Payment(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="HELD_IN_ESCROW")
     provider: Mapped[str] = mapped_column(String, nullable=False, default="SIMULATED")
     provider_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    stripe_charge_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    stripe_transfer_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    stripe_refund_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

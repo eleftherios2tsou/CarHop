@@ -15,6 +15,10 @@ class PaymentOut(BaseModel):
     status: str
     provider: str
     provider_ref: str | None = None
+    stripe_payment_intent_id: str | None = None
+    stripe_charge_id: str | None = None
+    stripe_transfer_id: str | None = None
+    stripe_refund_id: str | None = None
     created_at: datetime
     paid_at: datetime | None = None
     released_at: datetime | None = None

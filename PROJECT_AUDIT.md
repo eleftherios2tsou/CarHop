@@ -239,19 +239,23 @@ Date: 2026-02-18
 - Owner/admin can release escrow only after booking end date.
 - Stripe-funded escrow release now attempts a Stripe transfer to the connected owner account.
 - Admin can trigger refund (Stripe API path when provider is Stripe).
+- Stripe operations are hardened with replay-safe webhook event persistence, idempotent transfer/refund keys, and payment reconciliation for pending sessions.
 - Release/payment is blocked when an open dispute exists.
 - Backend additions:
   - `backend/app/models/payment.py`
+  - `backend/app/models/stripe_webhook_event.py`
   - `backend/app/schemas/payment.py`
   - `backend/app/routers/payments.py`
   - `backend/alembic/versions/f4a7d2c6b1e0_create_payments_table.py`
+  - `backend/alembic/versions/a8b1c3d4e5f6_add_stripe_connect_fields_to_users.py`
+  - `backend/alembic/versions/b7f2c41d9a33_add_stripe_ledger_fields_and_webhook_events.py`
 - Frontend wiring:
   - `frontend/src/pages/MyBookingsPage.jsx`
   - `frontend/src/pages/IncomingBookingsPage.jsx`
 
 ### Router/model wiring completed
 - `backend/app/main.py` includes routers for reviews, messages, disputes, and payments.
-- `backend/app/models/__init__.py` includes `Review`, `Message`, `Dispute`, and `Payment`.
+- `backend/app/models/__init__.py` includes `Review`, `Message`, `Dispute`, `Payment`, and `StripeWebhookEvent`.
 
 ### Test status
 - Container smoke suite passing:
@@ -262,7 +266,8 @@ Date: 2026-02-18
   - `backend/tests/test_stripe_webhook_smoke.py`
   - `backend/tests/test_stripe_connect_onboarding_smoke.py`
   - `backend/tests/test_stripe_release_requires_connected_owner.py`
-- Last known result: `7 passed`.
+  - `backend/tests/test_stripe_ops_hardening_smoke.py`
+- Last known result: `9 passed`.
 
 ### Required migration command when pulling this state
 Run after starting API container:
@@ -279,7 +284,8 @@ docker compose exec api alembic upgrade head
 - Payments/escrow (simulated fallback): done
 - Stripe test mode + webhook: done
 - Stripe Connect onboarding + release transfer path: done
-- Next major item: harden Stripe Connect for production (capabilities/onboarding edge cases, idempotent transfer ledgering, and failure recovery)
+- Stripe hardening (idempotency + replay protection + reconciliation): done
+- Next major item: non-payment track (security baseline or UI polish)
 
 2. UI + feature polish for production readiness:
 - Partially improved in booking pages (messaging/dispute UI)
@@ -291,7 +297,6 @@ docker compose exec api alembic upgrade head
 6. Ops and compliance: pending
 
 ### Recommended next implementation step
-- Harden payment operations and reliability:
-  - add idempotency keys + transfer IDs persisted in DB
-  - add webhook event persistence/replay protection
-  - add reconciliation job for payments stuck in `PAYMENT_PENDING`/transfer-failed states
+- Move to next track outside payments:
+  - Security baseline hardening (secret management, CORS/cookie env rules, auth rate limiting)
+  - or UI/feature polish pass for production readiness

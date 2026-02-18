@@ -90,10 +90,12 @@ def test_stripe_checkout_completed_webhook_sets_payment_held(client, monkeypatch
         assert sig_header == "test_sig"
         assert secret == "whsec_dummy"
         return {
+            "id": "evt_test_checkout_completed_1",
             "type": "checkout.session.completed",
             "data": {
                 "object": {
                     "id": "cs_test_123",
+                    "payment_intent": "pi_test_123",
                     "metadata": {
                         "payment_id": str(payment_id),
                         "booking_id": str(booking_id),
