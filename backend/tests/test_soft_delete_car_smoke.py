@@ -74,6 +74,6 @@ def test_delete_car_soft_deletes_when_bookings_exist(client):
 
     listing_res = test_client.get("/cars")
     assert listing_res.status_code == 200, listing_res.text
-    listed_ids = {c["id"] for c in listing_res.json()}
+    listed_ids = {c["id"] for c in listing_res.json()["items"]}
     assert car_id not in listed_ids
     db.close()

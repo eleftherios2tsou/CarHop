@@ -60,6 +60,7 @@ def client(tmp_path):
             role="USER",
             email_verified=True,
             is_active=True,
+            full_name="Owner User",
         )
 
     def override_csrf_protect():
