@@ -286,7 +286,8 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
               const dispute = disputesByBooking[b.id];
               const payment = paymentsByBooking[b.id];
               const canPayEscrow =
-                b.status === "APPROVED" && (!payment || payment.status === "PAYMENT_FAILED");
+                (b.status === "APPROVED" || b.status === "COMPLETED") &&
+                (!payment || payment.status === "PAYMENT_FAILED");
 
               return (
                 <div className="rowCard" key={b.id}>

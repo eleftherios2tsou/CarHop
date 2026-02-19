@@ -145,8 +145,8 @@ def pay_booking_to_escrow(
 
     if booking.renter_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the renter can pay for this booking")
-    if booking.status != "APPROVED":
-        raise HTTPException(status_code=400, detail="Only approved bookings can be paid")
+    if booking.status not in ("APPROVED", "COMPLETED"):
+        raise HTTPException(status_code=400, detail="Only approved or completed bookings can be paid")
     if _has_open_dispute(db, booking_id):
         raise HTTPException(status_code=400, detail="Cannot pay while dispute is open")
 
