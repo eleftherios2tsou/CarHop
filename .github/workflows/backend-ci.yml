@@ -26,6 +26,7 @@ jobs:
       - name: Run backend test suite (pytest)
         working-directory: backend
         env:
+          PYTHONPATH: .
           DATABASE_URL: "sqlite+pysqlite:///:memory:"
           UPLOADS_DIR: /tmp/uploads
           JWT_SECRET_KEY: ci-secret
@@ -33,4 +34,6 @@ jobs:
           COOKIE_SECURE: "false"
           COOKIE_SAMESITE: lax
           CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-        run: pytest -q
+        run: |
+          mkdir -p /tmp/uploads
+          pytest -q
