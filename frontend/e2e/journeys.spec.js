@@ -23,6 +23,9 @@ async function setupUsers(browser) {
 
 async function openTab(page, tabLabel) {
   await page.goto("/");
+  if (tabLabel !== "Marketplace") {
+    await page.getByRole("button", { name: "Navigation menu" }).click();
+  }
   await page.getByRole("button", { name: tabLabel, exact: true }).click();
 }
 
