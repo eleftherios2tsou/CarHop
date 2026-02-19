@@ -31,7 +31,7 @@ export default function EditListingModal({
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadPreviews, setUploadPreviews] = useState([]);
 
-  // Reset form whenever a different car is opened
+  // Reset form whenever a different car is opened.
   useEffect(() => {
     if (!carDetail) return;
     setForm({
@@ -108,12 +108,12 @@ export default function EditListingModal({
       {!carId ? (
         <div className="muted">No car selected.</div>
       ) : !carDetail ? (
-        <div className="muted">Loading…</div>
+        <div className="muted">Loading...</div>
       ) : (
         <div className="form" style={{ maxWidth: 860 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <div className="tiny muted">
-              {carDetail.make} {carDetail.model} · {carDetail.year}
+              {carDetail.make} {carDetail.model} - {carDetail.year}
             </div>
             <Badge tone={carDetail.status === "AVAILABLE" ? "ok" : "warn"}>
               {carDetail.status}
@@ -122,10 +122,10 @@ export default function EditListingModal({
 
           <div className="divider" />
 
-          <div className="sectionTitle">Pricing & Status</div>
+          <div className="sectionTitle">Pricing and Status</div>
           <div className="grid3">
             <Field
-              label="Daily price (£)"
+              label="Daily price (GBP)"
               type="number"
               value={form.daily_price}
               onChange={(e) => setForm((f) => ({ ...f, daily_price: e.target.value }))}
@@ -163,7 +163,7 @@ export default function EditListingModal({
               value={form.transmission}
               onChange={(e) => setForm((f) => ({ ...f, transmission: e.target.value }))}
               options={[
-                { value: "", label: "—" },
+                { value: "", label: "-" },
                 { value: "AUTOMATIC", label: "Automatic" },
                 { value: "MANUAL", label: "Manual" },
               ]}
@@ -173,7 +173,7 @@ export default function EditListingModal({
               value={form.fuel_type}
               onChange={(e) => setForm((f) => ({ ...f, fuel_type: e.target.value }))}
               options={[
-                { value: "", label: "—" },
+                { value: "", label: "-" },
                 { value: "PETROL", label: "Petrol" },
                 { value: "DIESEL", label: "Diesel" },
                 { value: "HYBRID", label: "Hybrid" },
@@ -227,7 +227,7 @@ export default function EditListingModal({
                     onClick={() => onDeletePhoto(p.id)}
                     aria-label="delete photo"
                   >
-                    ×
+                    x
                   </button>
                 </div>
               ))}
@@ -268,7 +268,7 @@ export default function EditListingModal({
                         onClick={() => removeUploadByIndex(idx)}
                         aria-label="remove photo"
                       >
-                        ×
+                        x
                       </button>
                     </div>
                   ))}

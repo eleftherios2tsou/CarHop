@@ -86,7 +86,7 @@ export default function ListCarPage({ gates, notify, onAuthError, onCarCreated }
         await apiFetchForm(`/cars/${created.id}/photos`, fd, { onAuthError });
       }
 
-      notify("Car listing created ✅", "ok");
+      notify("Car listing created successfully.", "ok");
       onCarCreated();
     } catch (err) {
       notify(`Create car error: ${err.message}`, "bad");
@@ -131,7 +131,7 @@ export default function ListCarPage({ gates, notify, onAuthError, onCarCreated }
             required
           />
           <Field
-            label="Daily price (£)"
+            label="Daily price (GBP)"
             type="number"
             value={dailyPrice}
             onChange={(e) => setDailyPrice(e.target.value)}
@@ -265,7 +265,7 @@ export default function ListCarPage({ gates, notify, onAuthError, onCarCreated }
                     onClick={() => removePhotoByIndex(idx)}
                     aria-label="remove photo"
                   >
-                    ×
+                    x
                   </button>
                 </div>
               ))}

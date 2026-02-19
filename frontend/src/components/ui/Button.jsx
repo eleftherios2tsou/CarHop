@@ -10,7 +10,7 @@ export default function Button({ variant = "primary", loading, ...props }) {
 
   return (
     <button className={cls} {...props} disabled={props.disabled || loading}>
-      {loading ? "Working…" : props.children}
+      {loading ? "Working..." : props.children}
     </button>
   );
 }

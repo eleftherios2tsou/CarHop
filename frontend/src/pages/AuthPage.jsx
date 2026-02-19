@@ -5,7 +5,7 @@ import Badge from "../components/ui/Badge";
 import { Field } from "../components/ui/Field";
 import { apiFetch } from "../lib/api";
 
-export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }) {
+export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
   const [authMode, setAuthMode] = useState("register");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,13 +30,13 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }
           }),
         });
         if (data?.verification_token) setVerificationToken(data.verification_token);
-        notify("Registered ✅ Verify your email using the token below.", "ok");
+        notify("Registered successfully. Verify your email using the token below.", "ok");
       } else {
         await apiFetch("/auth/login", {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
-        notify("Logged in ✅", "ok");
+        notify("Logged in successfully.", "ok");
         await onLoginSuccess();
       }
     } catch (err) {
@@ -50,7 +50,7 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }
     setBusyVerify(true);
     try {
       await apiFetch(`/auth/verify-email/${verificationToken}`, { method: "POST" });
-      notify("Email verified ✅ You can now login.", "ok");
+      notify("Email verified. You can now login.", "ok");
       setAuthMode("login");
       setVerificationToken("");
     } catch (err) {
@@ -67,7 +67,7 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      notify("Logged in ✅", "ok");
+      notify("Logged in successfully.", "ok");
       await onLoginSuccess();
     } catch (err) {
       notify(`Login error: ${err.message}`, "bad");
@@ -78,7 +78,7 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }
 
   return (
     <div className="twoCol">
-      <Card title="Register / Login" subtitle="Cookie auth + CSRF + refresh tokens.">
+      <Card title="Register / Login" subtitle="Cookie auth with CSRF and refresh tokens.">
         <div className="segmented">
           <button
             className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"}
@@ -108,7 +108,7 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder="password"
           />
           {authMode === "register" ? (
             <>
@@ -119,9 +119,9 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, setActive }
               />
               <Field
                 label="Date of birth"
+                type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
-                placeholder="YYYY-MM-DD"
               />
             </>
           ) : null}

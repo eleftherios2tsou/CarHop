@@ -6,7 +6,7 @@ export default function Toast({ tone = "info", message, onClose }) {
     <div className={cls} role="status">
       <div className="toastMsg">{message}</div>
       <button className="toastX" onClick={onClose} aria-label="close">
-        ×
+        x
       </button>
     </div>
   );

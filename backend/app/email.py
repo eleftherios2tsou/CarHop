@@ -166,3 +166,79 @@ def notify_booking_cancelled(
       <p>Those dates are now free again on your listing.</p>
     """
     send_email(owner_email, subject, _wrap(body))
+
+
+def notify_dispute_opened(
+    recipient_email: str,
+    recipient_name: str,
+    opener_name: str,
+    car: str,
+    booking_id: int,
+) -> None:
+    subject = f"Dispute opened on booking #{booking_id}"
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">A dispute has been opened</h2>
+      <p>Hi <strong>{recipient_name}</strong>,</p>
+      <p><strong>{opener_name}</strong> has opened a dispute on your booking for
+         <strong>{car}</strong> (booking #{booking_id}).</p>
+      <p>Log in to CarHop to view the details. Our team will review and resolve it shortly.</p>
+    """
+    send_email(recipient_email, subject, _wrap(body))
+
+
+def notify_dispute_resolved(
+    recipient_email: str,
+    recipient_name: str,
+    resolution: str,
+    note: str | None,
+    car: str,
+    booking_id: int,
+) -> None:
+    subject = f"Dispute resolved on booking #{booking_id}"
+    note_html = f"<p><strong>Resolution note:</strong> {note}</p>" if note else ""
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">Dispute resolved</h2>
+      <p>Hi <strong>{recipient_name}</strong>,</p>
+      <p>The dispute on booking #{booking_id} for <strong>{car}</strong> has been
+         <strong>{resolution}</strong> by the CarHop team.</p>
+      {note_html}
+      <p>If you have further questions, please contact support.</p>
+    """
+    send_email(recipient_email, subject, _wrap(body))
+
+
+def notify_payment_received(
+    owner_email: str,
+    owner_name: str,
+    renter_name: str,
+    car: str,
+    amount: int,
+    currency: str,
+) -> None:
+    subject = f"Escrow payment received for your {car}"
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">Escrow payment received</h2>
+      <p>Hi <strong>{owner_name}</strong>,</p>
+      <p><strong>{renter_name}</strong> has paid <strong>{amount} {currency}</strong>
+         into escrow for the rental of <strong>{car}</strong>.</p>
+      <p>Funds are held securely and will be released to you after the rental ends.</p>
+    """
+    send_email(owner_email, subject, _wrap(body))
+
+
+def notify_escrow_released(
+    owner_email: str,
+    owner_name: str,
+    car: str,
+    amount: int,
+    currency: str,
+) -> None:
+    subject = f"Payout released: {car}"
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">Your payout has been released</h2>
+      <p>Hi <strong>{owner_name}</strong>,</p>
+      <p><strong>{amount} {currency}</strong> has been released from escrow to your
+         account for the rental of <strong>{car}</strong>.</p>
+      <p>Thank you for hosting on CarHop!</p>
+    """
+    send_email(owner_email, subject, _wrap(body))

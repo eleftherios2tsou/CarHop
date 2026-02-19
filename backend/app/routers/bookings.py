@@ -1,7 +1,7 @@
 # backend/app/routers/bookings.py
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, exists, select
 
@@ -16,9 +16,11 @@ from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.license import DriverLicense
 from app.models.user import User
-from app.schemas.booking import BookingOut, BookingCreateIn
+from app.schemas.booking import BookingOut, BookingCreateIn, PaginatedBookings
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
+
+TERMINAL_STATUSES = {"REJECTED", "CANCELLED", "COMPLETED"}
 
 
 def require_verified_license(db: Session, user_id: int):
@@ -43,7 +45,7 @@ def approved_overlap_exists(
 ) -> bool:
     """
     Overlap definition (inclusive): existing.start <= end AND existing.end >= start
-    Only blocks APPROVED overlaps (PENDING overlaps allowed by design).
+    Only blocks APPROVED overlaps (PENDING/COMPLETED overlaps do not block).
     """
     q = select(1).where(
         BookingRequest.car_id == car_id,
@@ -59,6 +61,19 @@ def approved_overlap_exists(
     return db.query(exists(q)).scalar()
 
 
+def _auto_complete_past_bookings(db: Session, bookings: list[BookingRequest]) -> list[BookingRequest]:
+    """Transition APPROVED bookings whose end_date is in the past to COMPLETED."""
+    today = date.today()
+    needs_commit = False
+    for b in bookings:
+        if b.status == "APPROVED" and b.end_date < today:
+            b.status = "COMPLETED"
+            needs_commit = True
+    if needs_commit:
+        db.commit()
+    return bookings
+
+
 @router.post("/{car_id}", response_model=BookingOut, dependencies=[Depends(csrf_protect)])
 def request_booking(
     car_id: int,
@@ -72,6 +87,8 @@ def request_booking(
     car = db.get(CarListing, car_id)
     if not car:
         raise HTTPException(status_code=404, detail="Car not found")
+    if car.status != "AVAILABLE":
+        raise HTTPException(status_code=400, detail="Car is not available for booking")
 
     if car.owner_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot book your own car")
@@ -106,31 +123,48 @@ def request_booking(
     return booking
 
 
-@router.get("/incoming", response_model=list[BookingOut])
+@router.get("/incoming", response_model=PaginatedBookings)
 def incoming_bookings(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
-    return (
+    base_q = (
         db.query(BookingRequest)
         .join(CarListing, CarListing.id == BookingRequest.car_id)
         .filter(CarListing.owner_id == current_user.id)
+    )
+    total = base_q.count()
+    bookings = (
+        base_q
         .order_by(BookingRequest.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
+    _auto_complete_past_bookings(db, bookings)
+    return PaginatedBookings.build(bookings, total, page, page_size)
 
 
-@router.get("/mine", response_model=list[BookingOut])
+@router.get("/mine", response_model=PaginatedBookings)
 def my_bookings(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
-    return (
-        db.query(BookingRequest)
-        .filter(BookingRequest.renter_id == current_user.id)
+    base_q = db.query(BookingRequest).filter(BookingRequest.renter_id == current_user.id)
+    total = base_q.count()
+    bookings = (
+        base_q
         .order_by(BookingRequest.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
+    _auto_complete_past_bookings(db, bookings)
+    return PaginatedBookings.build(bookings, total, page, page_size)
 
 
 @router.post("/{booking_id}/approve", response_model=BookingOut, dependencies=[Depends(csrf_protect)])

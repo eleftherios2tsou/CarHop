@@ -16,7 +16,7 @@ from app.models.car_photo import CarPhoto
 from app.models.booking import BookingRequest
 from app.models.review import Review
 from app.models.user import User
-from app.schemas.car import CarCreate, CarOut, CarDetailOut, CarPhotosOut, CarUpdate
+from app.schemas.car import CarCreate, CarOut, CarDetailOut, CarPhotosOut, CarUpdate, PaginatedCars
 
 router = APIRouter(prefix="/cars", tags=["cars"])
 
@@ -62,7 +62,7 @@ def _save_local_upload(car_id: int, up: UploadFile) -> tuple[str, str]:
 # =========================
 # LIST MARKETPLACE CARS
 # =========================
-@router.get("/", response_model=list[CarOut])
+@router.get("/", response_model=PaginatedCars)
 def list_cars(
     db: Session = Depends(get_db),
     from_date: date | None = Query(default=None, alias="from"),
@@ -73,13 +73,15 @@ def list_cars(
     transmission: str | None = Query(default=None),
     fuel_type: str | None = Query(default=None),
     min_seats: int | None = Query(default=None, ge=1),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
 ):
     validate_range(from_date, to_date)
 
     q = db.query(CarListing).options(
         selectinload(CarListing.photos),
         selectinload(CarListing.owner),
-    )
+    ).filter(CarListing.status == "AVAILABLE")
 
     if from_date and to_date:
         overlap_exists = exists(
@@ -107,7 +109,13 @@ def list_cars(
     if min_seats is not None:
         q = q.filter(CarListing.seats >= min_seats)
 
-    cars = q.order_by(CarListing.id.desc()).all()
+    total = q.count()
+    cars = (
+        q.order_by(CarListing.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
 
     if cars:
         owner_ids = list({c.owner_id for c in cars})
@@ -143,7 +151,7 @@ def list_cars(
                 car.owner.review_count = review_meta["review_count"]
                 car.owner.avg_rating = review_meta["avg_rating"]
 
-    return cars
+    return PaginatedCars.build(cars, total, page, page_size)
 
 
 # =========================
@@ -265,7 +273,20 @@ def delete_car(
 
     _ensure_owner_or_admin(car, current_user)
 
-    # delete local files (if local storage)
+    has_bookings = (
+        db.query(BookingRequest.id)
+        .filter(BookingRequest.car_id == car_id)
+        .first()
+        is not None
+    )
+
+    # Soft delete when historical bookings exist, to preserve audit/payment/dispute history.
+    if has_bookings:
+        car.status = "ARCHIVED"
+        db.commit()
+        return {"ok": True, "deleted_id": car_id, "soft_deleted": True}
+
+    # Hard delete only when there are no linked bookings.
     if settings.storage_backend == "local":
         for p in car.photos or []:
             disk_path = os.path.join(settings.uploads_dir, p.storage_key)
@@ -278,7 +299,7 @@ def delete_car(
     db.delete(car)
     db.commit()
 
-    return {"ok": True, "deleted_id": car_id}
+    return {"ok": True, "deleted_id": car_id, "soft_deleted": False}
 
 
 # =========================

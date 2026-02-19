@@ -3,6 +3,7 @@ import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import { Field } from "../components/ui/Field";
 import Badge from "../components/ui/Badge";
+import DisputeResolveModal from "../components/disputes/DisputeResolveModal";
 import { apiFetch } from "../lib/api";
 
 function disputeTone(status) {
@@ -18,6 +19,7 @@ export default function AdminPage({ notify, onAuthError }) {
   const [busy, setBusy] = useState(false);
   const [busyLoad, setBusyLoad] = useState(false);
   const [busyResolve, setBusyResolve] = useState(null);
+  const [resolveModal, setResolveModal] = useState(null);
 
   async function adminVerifyLicense() {
     setBusy(true);
@@ -44,17 +46,17 @@ export default function AdminPage({ notify, onAuthError }) {
     }
   }
 
-  async function resolveDispute(disputeId, status) {
-    const note = window.prompt("Resolution note (optional):", "");
+  async function resolveDispute({ disputeId, status, resolution_note }) {
     setBusyResolve(disputeId);
     try {
       await apiFetch(`/disputes/${disputeId}/resolve`, {
         method: "POST",
         onAuthError,
-        body: JSON.stringify({ status, resolution_note: (note || "").trim() || null }),
+        body: JSON.stringify({ status, resolution_note }),
       });
       notify(`Dispute #${disputeId} ${status.toLowerCase()}`, "ok");
       await loadOpenDisputes();
+      setResolveModal(null);
     } catch (err) {
       notify(`Resolve dispute error: ${err.message}`, "bad");
     } finally {
@@ -63,7 +65,8 @@ export default function AdminPage({ notify, onAuthError }) {
   }
 
   return (
-    <Card title="Admin Panel" subtitle="Platform administration.">
+    <>
+      <Card title="Admin Panel" subtitle="Platform administration.">
       <div className="form" style={{ maxWidth: 820 }}>
         <div className="sectionTitle">License Verification</div>
         <Field
@@ -105,14 +108,14 @@ export default function AdminPage({ notify, onAuthError }) {
                 </div>
                 <div className="rowCardActions">
                   <Button
-                    onClick={() => resolveDispute(d.id, "RESOLVED")}
+                    onClick={() => setResolveModal({ id: d.id, initialStatus: "RESOLVED" })}
                     loading={busyResolve === d.id}
                   >
                     Resolve
                   </Button>
                   <Button
                     variant="danger"
-                    onClick={() => resolveDispute(d.id, "REJECTED")}
+                    onClick={() => setResolveModal({ id: d.id, initialStatus: "REJECTED" })}
                     loading={busyResolve === d.id}
                   >
                     Reject
@@ -123,6 +126,15 @@ export default function AdminPage({ notify, onAuthError }) {
           </div>
         )}
       </div>
-    </Card>
+      </Card>
+      <DisputeResolveModal
+        open={resolveModal !== null}
+        disputeId={resolveModal?.id || null}
+        initialStatus={resolveModal?.initialStatus || "RESOLVED"}
+        busy={busyResolve === resolveModal?.id}
+        onClose={() => setResolveModal(null)}
+        onSubmit={resolveDispute}
+      />
+    </>
   );
 }

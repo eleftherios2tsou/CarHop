@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.deps import csrf_protect, get_current_verified_user, get_db
+from app.email import notify_dispute_opened, notify_dispute_resolved
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.dispute import Dispute
@@ -85,6 +86,20 @@ def open_booking_dispute(
     db.add(dispute)
     db.commit()
     db.refresh(dispute)
+
+    # Notify the other party
+    car = db.get(CarListing, booking.car_id)
+    car_label = f"{car.make} {car.model} ({car.year})" if car else f"booking #{booking_id}"
+    other_user = db.get(User, against_user_id)
+    if other_user:
+        notify_dispute_opened(
+            recipient_email=other_user.email,
+            recipient_name=other_user.full_name,
+            opener_name=current_user.full_name,
+            car=car_label,
+            booking_id=booking_id,
+        )
+
     return dispute
 
 
@@ -109,4 +124,23 @@ def resolve_dispute(
     dispute.resolved_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(dispute)
+
+    # Notify both parties
+    booking = db.get(BookingRequest, dispute.booking_id)
+    if booking:
+        car = db.get(CarListing, booking.car_id)
+        car_label = f"{car.make} {car.model} ({car.year})" if car else f"booking #{dispute.booking_id}"
+        owner_id = car.owner_id if car else None
+        for user_id in {booking.renter_id, owner_id} - {None}:
+            user = db.get(User, user_id)
+            if user:
+                notify_dispute_resolved(
+                    recipient_email=user.email,
+                    recipient_name=user.full_name,
+                    resolution=payload.status,
+                    note=dispute.resolution_note,
+                    car=car_label,
+                    booking_id=dispute.booking_id,
+                )
+
     return dispute

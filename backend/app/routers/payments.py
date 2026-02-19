@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.deps import csrf_protect, get_current_verified_user, get_db
+from app.email import notify_escrow_released, notify_payment_received
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.dispute import Dispute
@@ -187,6 +188,21 @@ def pay_booking_to_escrow(
             db.add(payment)
         db.commit()
         db.refresh(payment)
+
+        # Notify the owner that funds are now in escrow
+        owner = db.get(User, owner_id)
+        if owner:
+            car = db.get(CarListing, booking.car_id)
+            car_label = f"{car.make} {car.model} ({car.year})" if car else f"booking #{booking_id}"
+            notify_payment_received(
+                owner_email=owner.email,
+                owner_name=owner.full_name,
+                renter_name=current_user.full_name,
+                car=car_label,
+                amount=payment.amount_total,
+                currency=payment.currency,
+            )
+
         return PaymentCheckoutOut(checkout_url=None, checkout_session_id=None, payment=payment)
 
     _set_stripe_key()
@@ -416,8 +432,8 @@ def release_escrow_to_owner(
         return payment
     if payment.status != "HELD_IN_ESCROW":
         raise HTTPException(status_code=400, detail=f"Cannot release payment in status {payment.status}")
-    if booking.status != "APPROVED":
-        raise HTTPException(status_code=400, detail="Booking is not in APPROVED status")
+    if booking.status not in ("APPROVED", "COMPLETED"):
+        raise HTTPException(status_code=400, detail="Booking is not in APPROVED or COMPLETED status")
     if booking.end_date >= date.today():
         raise HTTPException(status_code=400, detail="Escrow can be released only after booking end date")
     if _has_open_dispute(db, booking_id):
@@ -471,6 +487,20 @@ def release_escrow_to_owner(
     payment.released_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(payment)
+
+    # Notify the owner their payout is on the way
+    owner_user = db.get(User, owner_id)
+    if owner_user:
+        car = db.get(CarListing, booking.car_id)
+        car_label = f"{car.make} {car.model} ({car.year})" if car else f"booking #{booking_id}"
+        notify_escrow_released(
+            owner_email=owner_user.email,
+            owner_name=owner_user.full_name,
+            car=car_label,
+            amount=payment.payout_amount,
+            currency=payment.currency,
+        )
+
     return payment
 
 

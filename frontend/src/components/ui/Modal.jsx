@@ -23,7 +23,7 @@ export default function Modal({ open, title, children, onClose }) {
         <div className="modalHeader">
           <div className="modalTitle">{title}</div>
           <button className="modalX" onClick={onClose} aria-label="close">
-            ×
+            x
           </button>
         </div>
         <div className="modalBody">{children}</div>

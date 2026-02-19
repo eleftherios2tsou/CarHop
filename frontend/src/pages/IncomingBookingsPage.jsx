@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
+import StateNotice from "../components/ui/StateNotice";
+import DisputeCreateModal from "../components/disputes/DisputeCreateModal";
 import { apiFetch } from "../lib/api";
 
 function bookingStatusTone(status) {
   if (status === "PENDING") return "warn";
   if (status === "APPROVED") return "ok";
+  if (status === "COMPLETED") return "ok";
   if (status === "REJECTED") return "bad";
   return "warn";
 }
@@ -26,8 +29,12 @@ function paymentTone(status) {
   return "warn";
 }
 
+const PAGE_SIZE = 20;
+
 export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuthError }) {
   const [incoming, setIncoming] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [messagesByBooking, setMessagesByBooking] = useState({});
   const [disputesByBooking, setDisputesByBooking] = useState({});
   const [paymentsByBooking, setPaymentsByBooking] = useState({});
@@ -39,13 +46,16 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
   const [busyThreadSend, setBusyThreadSend] = useState(null);
   const [busyDispute, setBusyDispute] = useState(null);
   const [busyPaymentAction, setBusyPaymentAction] = useState(null);
+  const [disputeModalBookingId, setDisputeModalBookingId] = useState(null);
+  const pollRef = useRef(null);
 
-  async function fetchIncoming() {
+  async function fetchIncoming(targetPage = page) {
     setBusy(true);
     try {
-      const data = await apiFetch("/bookings/incoming", { onAuthError });
-      const list = Array.isArray(data) ? data : [];
+      const data = await apiFetch(`/bookings/incoming?page=${targetPage}&page_size=${PAGE_SIZE}`, { onAuthError });
+      const list = Array.isArray(data?.items) ? data.items : [];
       setIncoming(list);
+      setTotal(data?.total ?? 0);
       await Promise.all(list.map((b) => loadDispute(b.id, false)));
       await Promise.all(list.map((b) => loadPayment(b.id, false)));
     } catch {
@@ -56,9 +66,27 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
   }
 
   useEffect(() => {
-    if (isAuthed) fetchIncoming();
+    if (isAuthed) fetchIncoming(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthed]);
+  }, [isAuthed, page]);
+
+  // Poll the open thread every 5s (silently, no loading flicker)
+  useEffect(() => {
+    if (!openThreadId) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await apiFetch(`/messages/booking/${openThreadId}`, { onAuthError });
+        setMessagesByBooking((prev) => ({
+          ...prev,
+          [openThreadId]: Array.isArray(data) ? data : [],
+        }));
+      } catch {
+        // ignore polling errors silently
+      }
+    }, 5000);
+    return () => clearInterval(pollRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openThreadId]);
 
   async function approveBooking(bookingId) {
     setBusyDecision(bookingId);
@@ -128,11 +156,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
     }
   }
 
-  async function openDispute(bookingId) {
-    const reason = window.prompt("Dispute reason (short title):", "Renter issue");
-    if (!reason || !reason.trim()) return;
-    const details = window.prompt("Dispute details:", "Describe what happened.");
-
+  async function openDispute({ bookingId, reason, details }) {
     setBusyDispute(bookingId);
     try {
       await apiFetch(`/disputes/booking/${bookingId}`, {
@@ -142,6 +166,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       });
       notify(`Dispute opened for booking #${bookingId}`, "ok");
       await loadDispute(bookingId);
+      setDisputeModalBookingId(null);
     } catch (err) {
       notify(`Open dispute error: ${err.message}`, "bad");
     } finally {
@@ -198,160 +223,196 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   return (
-    <Card
-      title="Incoming Booking Requests"
-      subtitle="Owners can approve/reject requests, message renters, and open disputes."
-    >
+    <>
+      <Card
+        title="Incoming Booking Requests"
+        subtitle="Owners can approve/reject requests, message renters, and open disputes."
+      >
       {!isAuthed ? (
-        <p className="muted">Login to view incoming bookings.</p>
+        <StateNotice title="Login required" detail="Sign in to manage incoming bookings." />
       ) : busy && incoming.length === 0 ? (
-        <p className="muted">Loading...</p>
+        <StateNotice title="Loading incoming bookings..." detail="Checking current renter requests." />
       ) : incoming.length === 0 ? (
-        <p className="muted">No incoming bookings.</p>
+        <StateNotice title="No incoming bookings" detail="New booking requests will appear here." />
       ) : (
-        <div className="stack">
-          {incoming.map((b) => {
-            const thread = messagesByBooking[b.id] || [];
-            const threadOpen = openThreadId === b.id;
-            const dispute = disputesByBooking[b.id];
-            const payment = paymentsByBooking[b.id];
+        <>
+          <div className="stack">
+            {incoming.map((b) => {
+              const thread = messagesByBooking[b.id] || [];
+              const threadOpen = openThreadId === b.id;
+              const dispute = disputesByBooking[b.id];
+              const payment = paymentsByBooking[b.id];
 
-            return (
-              <div className="rowCard" key={b.id}>
-                <div className="rowCardMain">
-                  <div className="rowCardTitle">
-                    Booking #{b.id}{" "}
-                    <span className="muted">- car #{b.car_id} - renter #{b.renter_id}</span>
+              return (
+                <div className="rowCard" key={b.id}>
+                  <div className="rowCardMain">
+                    <div className="rowCardTitle">
+                      Booking #{b.id}{" "}
+                      <span className="muted">- car #{b.car_id} - renter #{b.renter_id}</span>
+                    </div>
+                    <div className="rowCardSub">
+                      Dates: <span className="mono">{b.start_date}</span> to <span className="mono">{b.end_date}</span>
+                    </div>
+                    <div className="rowCardSub">
+                      Status: <Badge tone={bookingStatusTone(b.status)}>{b.status}</Badge>
+                      {dispute ? (
+                        <span style={{ marginLeft: 8 }}>
+                          <Badge tone={disputeTone(dispute.status)}>Dispute: {dispute.status}</Badge>
+                        </span>
+                      ) : null}
+                      {payment ? (
+                        <span style={{ marginLeft: 8 }}>
+                          <Badge tone={paymentTone(payment.status)}>Payment: {payment.status}</Badge>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="rowCardSub">
-                    Dates: <span className="mono">{b.start_date}</span> to <span className="mono">{b.end_date}</span>
-                  </div>
-                  <div className="rowCardSub">
-                    Status: <Badge tone={bookingStatusTone(b.status)}>{b.status}</Badge>
-                    {dispute ? (
-                      <span style={{ marginLeft: 8 }}>
-                        <Badge tone={disputeTone(dispute.status)}>Dispute: {dispute.status}</Badge>
-                      </span>
-                    ) : null}
-                    {payment ? (
-                      <span style={{ marginLeft: 8 }}>
-                        <Badge tone={paymentTone(payment.status)}>Payment: {payment.status}</Badge>
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
 
-                <div className="rowCardActions">
-                  {b.status === "PENDING" ? (
-                    <>
-                      <Button
-                        onClick={() => approveBooking(b.id)}
-                        loading={busyDecision === b.id}
-                        disabled={busyDecision !== null && busyDecision !== b.id}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        variant="danger"
-                        onClick={() => rejectBooking(b.id)}
-                        loading={busyDecision === b.id}
-                        disabled={busyDecision !== null && busyDecision !== b.id}
-                      >
-                        Reject
-                      </Button>
-                    </>
-                  ) : (
-                    <span className="tiny muted">No action</span>
-                  )}
+                  <div className="rowCardActions">
+                    {b.status === "PENDING" ? (
+                      <>
+                        <Button
+                          onClick={() => approveBooking(b.id)}
+                          loading={busyDecision === b.id}
+                          disabled={busyDecision !== null && busyDecision !== b.id}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          variant="danger"
+                          onClick={() => rejectBooking(b.id)}
+                          loading={busyDecision === b.id}
+                          disabled={busyDecision !== null && busyDecision !== b.id}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="tiny muted">No action</span>
+                    )}
 
-                  <Button
-                    variant="secondary"
-                    onClick={() => toggleThread(b.id)}
-                    loading={busyThreadLoad === b.id}
-                  >
-                    {threadOpen ? "Hide Messages" : "Messages"}
-                  </Button>
-
-                  {!dispute ? (
                     <Button
                       variant="secondary"
-                      onClick={() => openDispute(b.id)}
-                      loading={busyDispute === b.id}
-                      disabled={b.status === "PENDING"}
+                      onClick={() => toggleThread(b.id)}
+                      loading={busyThreadLoad === b.id}
                     >
-                      Open Dispute
+                      {threadOpen ? "Hide Messages" : "Messages"}
                     </Button>
-                  ) : null}
 
-                  {payment?.status === "HELD_IN_ESCROW" ? (
-                    <Button
-                      variant="secondary"
-                      onClick={() => releaseEscrow(b.id)}
-                      loading={busyPaymentAction === b.id}
-                    >
-                      Release Escrow
-                    </Button>
+                    {!dispute ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setDisputeModalBookingId(b.id)}
+                        loading={busyDispute === b.id}
+                        disabled={b.status === "PENDING"}
+                      >
+                        Open Dispute
+                      </Button>
+                    ) : null}
+
+                    {payment?.status === "HELD_IN_ESCROW" ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => releaseEscrow(b.id)}
+                        loading={busyPaymentAction === b.id}
+                      >
+                        Release Escrow
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {threadOpen ? (
+                    <div style={{ width: "100%", marginTop: 12 }}>
+                      <div className="tiny muted" style={{ marginBottom: 6 }}>
+                        Booking chat — updates every 5 seconds
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                          maxHeight: 180,
+                          overflowY: "auto",
+                          padding: 8,
+                          border: "1px solid var(--line)",
+                          borderRadius: 10,
+                        }}
+                      >
+                        {thread.length === 0 ? (
+                          <span className="tiny muted">No messages yet.</span>
+                        ) : (
+                          thread.map((m) => (
+                            <div
+                              key={m.id}
+                              style={{
+                                alignSelf: m.sender_id === profile?.id ? "flex-end" : "flex-start",
+                                background: m.sender_id === profile?.id ? "var(--brand-soft)" : "var(--surface-alt)",
+                                border: "1px solid var(--line)",
+                                borderRadius: 8,
+                                padding: "6px 8px",
+                                maxWidth: "75%",
+                              }}
+                            >
+                              <div className="tiny muted">{m.sender_name}</div>
+                              <div>{m.content}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="row" style={{ marginTop: 8 }}>
+                        <input
+                          className="input"
+                          value={messageDrafts[b.id] || ""}
+                          onChange={(e) => setMessageDraft(b.id, e.target.value)}
+                          placeholder="Write a message"
+                        />
+                        <Button onClick={() => sendMessage(b.id)} loading={busyThreadSend === b.id}>
+                          Send
+                        </Button>
+                      </div>
+                    </div>
                   ) : null}
                 </div>
+              );
+            })}
+          </div>
 
-                {threadOpen ? (
-                  <div style={{ width: "100%", marginTop: 12 }}>
-                    <div className="tiny muted" style={{ marginBottom: 6 }}>
-                      Booking chat
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                        maxHeight: 180,
-                        overflowY: "auto",
-                        padding: 8,
-                        border: "1px solid var(--border)",
-                        borderRadius: 10,
-                      }}
-                    >
-                      {thread.length === 0 ? (
-                        <span className="tiny muted">No messages yet.</span>
-                      ) : (
-                        thread.map((m) => (
-                          <div
-                            key={m.id}
-                            style={{
-                              alignSelf: m.sender_id === profile?.id ? "flex-end" : "flex-start",
-                              background: m.sender_id === profile?.id ? "var(--acc-weak)" : "var(--panel)",
-                              border: "1px solid var(--border)",
-                              borderRadius: 8,
-                              padding: "6px 8px",
-                              maxWidth: "75%",
-                            }}
-                          >
-                            <div className="tiny muted">user #{m.sender_id}</div>
-                            <div>{m.content}</div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    <div className="row" style={{ marginTop: 8 }}>
-                      <input
-                        className="input"
-                        value={messageDrafts[b.id] || ""}
-                        onChange={(e) => setMessageDraft(b.id, e.target.value)}
-                        placeholder="Write a message"
-                      />
-                      <Button onClick={() => sendMessage(b.id)} loading={busyThreadSend === b.id}>
-                        Send
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+          {totalPages > 1 ? (
+            <div className="row" style={{ justifyContent: "center", marginTop: 16, gap: 8 }}>
+              <Button
+                variant="secondary"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1 || busy}
+              >
+                Previous
+              </Button>
+              <span className="tiny muted" style={{ alignSelf: "center" }}>
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="secondary"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages || busy}
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
-    </Card>
+      </Card>
+      <DisputeCreateModal
+        open={disputeModalBookingId !== null}
+        bookingId={disputeModalBookingId}
+        defaultReason="Renter issue"
+        busy={busyDispute === disputeModalBookingId}
+        onClose={() => setDisputeModalBookingId(null)}
+        onSubmit={openDispute}
+      />
+    </>
   );
 }

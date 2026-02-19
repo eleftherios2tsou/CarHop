@@ -1,302 +1,169 @@
-# CarHop Project Audit & System Walkthrough
-
-This document is a full-system orientation for CarHop so a new contributor can quickly understand how it works end to end.
-
-## 1) Product and stack
-
-CarHop is a peer-to-peer car rental marketplace with:
-- **Frontend**: React + Vite SPA.
-- **Backend**: FastAPI + SQLAlchemy.
-- **Database**: PostgreSQL.
-- **Containerization**: Docker Compose.
-
-The API and DB are started by Compose, with backend code mounted for hot reload.
-
-## 2) Runtime architecture
-
-### Services
-- `db`: PostgreSQL 16.
-- `api`: FastAPI app served by Uvicorn with `--reload`.
-
-The backend is configured using environment variables for DB URL, JWT, cookie policy, uploads storage, and SMTP email settings.
-
-### HTTP topology
-In local dev, frontend calls `/api/*` and backend serves:
-- Business endpoints under `/auth`, `/profile`, `/cars`, `/bookings`.
-- Uploaded files under `/uploads/*` (local filesystem-backed).
-- Health endpoint at `/health`.
-
-## 3) Authentication and session model
-
-CarHop uses **cookie-based auth** with layered security:
-1. Login sets an **access token cookie** + **refresh token cookie** + **csrf cookie**.
-2. Access token authenticates requests.
-3. State-changing requests require CSRF header matching CSRF cookie.
-4. If an API call returns 401, frontend automatically calls `/auth/refresh`, then retries once.
-5. Refresh tokens are persisted hashed in DB and rotated on refresh.
-
-Important details:
-- Only hash of refresh token is stored in DB.
-- Refresh token rotation revokes old token row and creates a new row.
-- Protected dependencies enforce authenticated user, and optionally verified email.
-
-## 4) Authorization and role model
-
-Roles are string-based (`USER` / `ADMIN`).
-
-Current role checks:
-- Admin-only endpoint to verify a user license.
-- Car modification endpoints enforce owner-or-admin for updates/deletes/photos.
-- Incoming booking decisions are restricted to listing owner.
-
-## 5) Domain model and workflow
-
-### Core entities
-- **User**: identity, hashed password, verification flags, role, created_at.
-- **DriverLicense**: one-per-user, verified by admin.
-- **CarListing**: car metadata, owner, status, features JSON.
-- **CarPhoto**: ordered photos with local storage key + URL.
-- **BookingRequest**: renter-to-owner booking request with status lifecycle.
-- **RefreshToken**: persisted hashed refresh sessions.
-- **EmailVerificationToken**: one-time email verification token.
-
-### Typical user journey
-1. User registers (must be 21+).
-2. User verifies email token.
-3. User logs in (cookies issued).
-4. User submits driver license; admin verifies it.
-5. Verified user can request bookings.
-6. Owner approves/rejects incoming requests.
-7. Renter can cancel based on status/date rules.
-
-## 6) Cars marketplace behavior
-
-`GET /cars` supports:
-- date range availability filtering against **APPROVED** bookings only.
-- city partial match (`ilike`).
-- price range, transmission, fuel type, min seats filters.
-
-If date range is provided, listings overlapping approved bookings are excluded.
-
-Additional behavior:
-- Car cards include owner metadata enrichment (`member_since`, listing count) at query time.
-- Max 8 photos per listing.
-- MIME guard + extension normalization for local uploads.
-
-## 7) Booking behavior and business rules
-
-Booking request rules:
-- requester must be authenticated + email verified + license verified.
-- renter cannot book own car.
-- dates must be valid.
-- overlaps blocked only against APPROVED bookings.
-
-Owner actions:
-- approve only pending bookings and only if still no approved overlap.
-- reject only pending bookings.
-
-Renter cancellation:
-- can cancel pending anytime.
-- can cancel approved only before start date.
-
-Email notifications are attempted on request/approve/reject/cancel but never block action success.
-
-## 8) Frontend composition
-
-`App.jsx` is the composition shell:
-- restores session by fetching `/profile/me` on mount.
-- computes gates (`canListCars`, `canBook`).
-- renders navigation by auth/email/admin state.
-- hosts page-level routing via local `active` state.
-
-Page responsibilities:
-- **AuthPage / VerifyEmailPage**: registration, login, token verification.
-- **ProfilePage**: profile status + license submission + optional admin verify.
-- **MarketplacePage**: search/filter and booking requests.
-- **ListCarPage**: create listing + upload photos.
-- **MyListingsPage**: owner CRUD + photo management.
-- **IncomingBookingsPage**: owner decisions.
-- **MyBookingsPage**: renter booking history + cancel actions.
-- **AdminPage**: direct license verification utility.
-
-## 9) Data and migration posture
-
-Alembic migrations exist for baseline schema plus iterative changes (user defaults, listing expansion, car photos, created_at, etc.). This indicates schema is evolving, but migration discipline is in place.
-
-## 10) Operational/security observations
-
-### Strengths
-- Cookie auth with refresh rotation + CSRF defense.
-- Server-side overlap validation for booking integrity.
-- Guarded owner/admin permissions for listing edits.
-- Non-blocking email dispatch to keep core flows robust.
-
-### Risks / improvement opportunities
-1. Secrets now use env interpolation in Compose, but production secret management/rotation policy should still be formalized.
-2. CORS is now env-driven; production origin allowlist governance is still required.
-3. Stripe test-mode checkout + webhook ingestion is now implemented, but payouts/escrow release are still app-managed (not Stripe Connect).
-4. Booking status is stringly-typed; introducing enum constraints can reduce data drift.
-5. Auth brute-force baseline is now in place (IP-based limiter on register/login/verify/refresh), but distributed/global rate limiting is still recommended for multi-instance deploys.
-
-## 11) Quick mental model for contributors
-
-If you want to debug any feature fast:
-1. Start with frontend page in `frontend/src/pages/*`.
-2. Trace API call in `frontend/src/lib/api.js`.
-3. Open corresponding backend router in `backend/app/routers/*`.
-4. Follow model constraints in `backend/app/models/*`.
-5. Confirm migration/state assumptions in `backend/alembic/versions/*`.
-
-This project is already in a good “MVP-plus” state: the foundations for auth, listing CRUD, and booking lifecycle are solid, with clear next steps toward production readiness (payments, messaging, reviews, stronger secret management, and deploy hardening).
-
-## 12) Prioritized roadmap to final version
-
-1. **Product-complete trust features**
-- Add payments/escrow flow.
-- Add in-app messaging between renter and owner.
-- Add reviews/ratings after completed bookings.
-- Add dispute/cancellation policy flows in product logic.
-
-2. **UI + feature polish for production readiness**
-- Unify design system tokens, spacing, and typography across pages.
-- Improve empty/loading/error states for all major flows.
-- Polish booking/listing UX (filter clarity, card hierarchy, confirmations).
-- Improve mobile responsiveness and accessibility pass (keyboard/contrast/forms).
-
-3. **Reliable deploy path**
-- Create production compose/deploy profile.
-- Ensure Alembic migrations run in release pipeline/startup.
-- Add health checks/readiness checks and startup ordering.
-- Document one-command deploy and rollback procedure.
-
-4. **Security baseline**
-- Remove committed secrets from repository and rotate exposed credentials.
-- Move environment config to secure secret management.
-- Enforce production CORS/cookie settings by environment.
-- Add auth endpoint rate limiting and brute-force protection.
-
-5. **Test coverage**
-- Keep smoke tests for publish listing and photo upload.
-- Add booking lifecycle integration tests.
-- Add auth/session/CSRF failure-path tests.
-- Add CI gate for backend tests before merge/deploy.
-
-6. **Ops and compliance**
-- Add structured logging, error tracking, and basic metrics.
-- Define DB/uploads backup and restore drills.
-- Add admin/audit trails for high-risk actions.
-- Prepare core legal docs (Terms, Privacy, cancellation policy) and data retention policy.
-
-## 13) Current build status (handoff snapshot)
+# CarHop Project Audit (Updated)
 
 Date: 2026-02-18
 
-### Completed in current development cycle
+## 1) Executive Summary
 
-1. **Listing publish flow stabilized**
-- Backend create listing + photo upload is working.
-- Smoke test added for publish flow:
-  - `backend/tests/test_publish_listing_smoke.py`
+CarHop is now in a strong MVP-plus state with:
+- Full renter/owner lifecycle: auth, profile/license, listing CRUD, booking, messaging, reviews, disputes.
+- Escrow payments implemented with two paths:
+  - Stripe test mode (Checkout + webhook source of truth + Connect payout path).
+  - Simulated fallback mode when Stripe keys are not configured.
+- Professionalized frontend pass completed (design system, state components, modal-based dispute flows).
+- Automated quality gates in place for backend, frontend unit tests, and frontend E2E.
 
-2. **Trust feature: reviews/ratings**
-- Renter can leave one review per completed approved booking.
-- Owner rating metadata is surfaced in marketplace cards.
-- Backend additions:
-  - `backend/app/models/review.py`
-  - `backend/app/schemas/review.py`
-  - `backend/app/routers/reviews.py`
-  - `backend/alembic/versions/8a1d2f4c9b01_create_reviews_table.py`
+## 2) Current Architecture
 
-3. **Trust feature: renter-owner booking messaging**
-- Booking thread messages between renter and owner.
-- Participant-only access control enforced server-side.
-- Backend additions:
-  - `backend/app/models/message.py`
-  - `backend/app/schemas/message.py`
-  - `backend/app/routers/messages.py`
-  - `backend/alembic/versions/bf2c7a11d932_create_messages_table.py`
-- Frontend wiring:
-  - `frontend/src/pages/MyBookingsPage.jsx`
-  - `frontend/src/pages/IncomingBookingsPage.jsx`
+### Backend
+- Framework: FastAPI + SQLAlchemy + Alembic
+- Entry point: `backend/app/main.py`
+- Routers mounted:
+  - `auth`, `profile`, `cars`, `bookings`, `reviews`, `messages`, `disputes`, `payments`
+- Health endpoint: `GET /health`
+- Static uploads mount: `/uploads`
 
-4. **Trust feature: disputes flow**
-- Renter/owner can open dispute for non-pending bookings.
-- Admin can list open disputes and resolve/reject with a note.
-- Backend additions:
-  - `backend/app/models/dispute.py`
-  - `backend/app/schemas/dispute.py`
-  - `backend/app/routers/disputes.py`
-  - `backend/alembic/versions/c3d8e21aa7f0_create_disputes_table.py`
-- Frontend wiring:
-  - `frontend/src/pages/MyBookingsPage.jsx`
-  - `frontend/src/pages/IncomingBookingsPage.jsx`
-  - `frontend/src/pages/AdminPage.jsx`
+### Frontend
+- React + Vite SPA
+- Main shell: `frontend/src/App.jsx`
+- API client with cookie auth + CSRF + refresh-retry: `frontend/src/lib/api.js`
 
-5. **Payments/escrow flow (Stripe test mode + fallback simulation)**
-- Renter can start checkout via Stripe-hosted Checkout Session.
-- Webhook (`/payments/stripe/webhook`) is used to mark escrow funded.
-- Owners can start Stripe Connect onboarding from profile and refresh payout connection status.
-- Owner/admin can release escrow only after booking end date.
-- Stripe-funded escrow release now attempts a Stripe transfer to the connected owner account.
-- Admin can trigger refund (Stripe API path when provider is Stripe).
-- Stripe operations are hardened with replay-safe webhook event persistence, idempotent transfer/refund keys, and payment reconciliation for pending sessions.
-- Release/payment is blocked when an open dispute exists.
-- Backend additions:
-  - `backend/app/models/payment.py`
-  - `backend/app/models/stripe_webhook_event.py`
-  - `backend/app/schemas/payment.py`
-  - `backend/app/routers/payments.py`
-  - `backend/alembic/versions/f4a7d2c6b1e0_create_payments_table.py`
-  - `backend/alembic/versions/a8b1c3d4e5f6_add_stripe_connect_fields_to_users.py`
-  - `backend/alembic/versions/b7f2c41d9a33_add_stripe_ledger_fields_and_webhook_events.py`
-- Frontend wiring:
-  - `frontend/src/pages/MyBookingsPage.jsx`
-  - `frontend/src/pages/IncomingBookingsPage.jsx`
+### Data
+- Primary runtime DB: PostgreSQL (docker-compose)
+- Migrations: Alembic (`backend/alembic`)
 
-### Router/model wiring completed
-- `backend/app/main.py` includes routers for reviews, messages, disputes, and payments.
-- `backend/app/models/__init__.py` includes `Review`, `Message`, `Dispute`, `Payment`, and `StripeWebhookEvent`.
+## 3) Implemented Product Scope
 
-### Test status
-- Container smoke suite passing:
-  - `backend/tests/test_publish_listing_smoke.py`
-  - `backend/tests/test_booking_messages_smoke.py`
-  - `backend/tests/test_dispute_smoke.py`
-  - `backend/tests/test_payment_escrow_smoke.py`
-  - `backend/tests/test_stripe_webhook_smoke.py`
-  - `backend/tests/test_stripe_connect_onboarding_smoke.py`
-  - `backend/tests/test_stripe_release_requires_connected_owner.py`
-  - `backend/tests/test_stripe_ops_hardening_smoke.py`
-- Last known result: `9 passed`.
+### Identity, Auth, Session Security
+- Registration with age gate (21+).
+- Email verification token flow.
+- Login sets access/refresh/csrf cookies.
+- Refresh token rotation and revocation.
+- CSRF protection on state-changing endpoints.
+- Rate limiting on auth endpoints (register/login/verify/refresh).
 
-### Required migration command when pulling this state
-Run after starting API container:
+### Profiles and Trust
+- License submission flow for users.
+- Admin-only license verification endpoint.
+- Role model: `USER` and `ADMIN`.
 
-```bash
-docker compose exec api alembic upgrade head
-```
+### Cars and Listings
+- Listing create, patch, detail, and listing photos upload/delete.
+- Marketplace filtering by date availability, city, price, transmission, fuel type, seats.
+- Owner metadata on listings (member since, listing count, review aggregates).
+- Photo constraints and local storage support.
+- Soft delete implemented:
+  - If bookings exist, listing is archived (`status = ARCHIVED`) instead of hard delete.
+  - Hard delete only when no bookings reference the car.
 
-### Current roadmap progress (from Section 12)
-1. Product-complete trust features:
-- Reviews/ratings: done
-- Messaging: done
-- Disputes: done
-- Payments/escrow (simulated fallback): done
-- Stripe test mode + webhook: done
-- Stripe Connect onboarding + release transfer path: done
-- Stripe hardening (idempotency + replay protection + reconciliation): done
-- Next major item: non-payment track (security baseline or UI polish)
+### Bookings
+- Renter booking requests.
+- Owner approve/reject incoming requests.
+- Renter cancel logic by status/date rules.
+- Overlap prevention against approved bookings.
 
-2. UI + feature polish for production readiness:
-- Partially improved in booking pages (messaging/dispute UI)
-- Full polish pass still pending
+### Messaging
+- Booking-scoped renter-owner messaging thread.
+- Participant-only access enforced server-side.
 
-3. Reliable deploy path: pending
-4. Security baseline: in progress (secrets externalized in compose env vars, env-driven CORS, auth rate limiting added)
-5. Test coverage: in progress (smoke coverage added, broader integration suite pending)
-6. Ops and compliance: pending
+### Reviews
+- One review per booking.
+- Allowed only for approved bookings after booking end date.
 
-### Recommended next implementation step
-- Move to next track outside payments:
-  - UI/feature polish pass for production readiness
-  - or deeper security hardening (production secret manager integration + distributed rate limiting)
+### Disputes
+- Renter or owner can open dispute for a booking (not pending).
+- Admin can list open disputes and resolve/reject with note.
+- Frontend now uses dedicated dispute modals (no `window.prompt`).
+
+### Payments / Escrow / Stripe
+- Payment domain implemented in `backend/app/routers/payments.py`.
+- Renter can fund escrow for approved booking.
+- Stripe mode:
+  - Checkout Session creation.
+  - Webhook handler updates payment lifecycle (idempotent event persistence).
+  - Reconciliation endpoint for pending sessions.
+  - Release to owner via Stripe transfer (requires connected/onboarded owner account).
+  - Admin refund path via Stripe refund API.
+- Simulated mode:
+  - Immediate escrow funding without Stripe checkout.
+- Business guards:
+  - Open disputes block payment/release.
+  - Release only after booking end date.
+
+## 4) Frontend Status
+
+A full UI polish pass has been applied:
+- New visual system and typography in:
+  - `frontend/src/App.css`
+  - `frontend/src/index.css`
+- Reusable state notice component:
+  - `frontend/src/components/ui/StateNotice.jsx`
+- Modalized disputes:
+  - `frontend/src/components/disputes/DisputeCreateModal.jsx`
+  - `frontend/src/components/disputes/DisputeResolveModal.jsx`
+- Updated and cleaned pages:
+  - `AuthPage`, `ListCarPage`, `MyListingsPage`, `MarketplacePage`, `MyBookingsPage`, `IncomingBookingsPage`, `AdminPage`
+- Encoding/UX cleanup completed on key components (`Button`, `Modal`, `Toast`, `EditListingModal`).
+
+## 5) Tests and Quality Coverage
+
+### Backend Tests (pytest)
+Current smoke/integration-style coverage includes:
+- `test_publish_listing_smoke.py`
+- `test_booking_messages_smoke.py`
+- `test_dispute_smoke.py`
+- `test_payment_escrow_smoke.py`
+- `test_soft_delete_car_smoke.py`
+- `test_stripe_webhook_smoke.py`
+- `test_stripe_connect_onboarding_smoke.py`
+- `test_stripe_release_requires_connected_owner.py`
+- `test_stripe_ops_hardening_smoke.py`
+
+### Frontend Unit Tests (Vitest)
+- `AuthPage.test.jsx`
+- `MarketplacePage.test.jsx`
+- `DisputeCreateModal.test.jsx`
+
+### Frontend E2E (Playwright)
+- `frontend/e2e/journeys.spec.js`
+- Multi-user journeys covered:
+  - Booking request + owner approval
+  - Dispute open + owner visibility
+  - Escrow payment + release (handles simulated and Stripe-pending behavior)
+
+## 6) CI/CD Status (GitHub Actions)
+
+### Frontend workflow
+- File: `.github/workflows/frontend-ci.yml`
+- Jobs:
+  - `vitest`: frontend unit tests
+  - `playwright-e2e`: Postgres service + backend migration/start + frontend start + E2E run
+- Artifacts uploaded on run: Playwright report/results and service logs.
+
+### Backend workflow
+- File: `.github/workflows/backend-ci.yml`
+- Job:
+  - `pytest`: installs backend dependencies and runs backend test suite.
+
+## 7) Operational Notes
+
+- Local dev orchestration remains in `docker-compose.yml` with `db` + `api` services.
+- Frontend runs separately via Vite and proxies `/api` to backend.
+- Stripe credentials are environment-driven; if absent, payment falls back to simulation mode.
+
+## 8) Known Gaps / Remaining Work
+
+1. Backend tests currently rely on in-memory SQLite fixtures; add a Postgres-backed integration suite for closer production parity.
+2. Expand E2E coverage for admin-only flows (license verification, dispute resolution by admin, refund/reconcile flows).
+3. Production hardening still needed:
+- central secret management and rotation policy,
+- stricter production CORS/cookie configuration matrix,
+- monitoring/alerting and structured audit logs.
+4. Compliance/ops docs (Terms/Privacy, retention, incident response, backup/restore drills) are still pending.
+
+## 9) Recommended Next Priority
+
+If the goal is production-readiness, the best next track is:
+1. Add Postgres-backed backend integration tests in CI.
+2. Add admin payment/dispute E2E flows.
+3. Add deploy workflow + environment promotion strategy (staging -> production).
+

@@ -11,6 +11,7 @@ class MessageOut(BaseModel):
     id: int
     booking_id: int
     sender_id: int
+    sender_name: str
     recipient_id: int
     content: str
     created_at: datetime

@@ -14,3 +14,37 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+## E2E (Playwright)
+
+This frontend includes full multi-user E2E journeys for booking, disputes, and escrow payments.
+
+### Prerequisites
+
+- Frontend running at `http://localhost:5173`
+- Backend API running at `http://localhost:8000`
+- Postgres running and reachable for E2E DB helpers
+
+### Install browser runtime
+
+```bash
+npx --prefix frontend playwright install chromium
+```
+
+### Run E2E suite
+
+```bash
+npm --prefix frontend run e2e
+```
+
+Optional:
+
+```bash
+npm --prefix frontend run e2e:headed
+npm --prefix frontend run e2e:ui
+```
+
+### Environment overrides
+
+- `PLAYWRIGHT_BASE_URL` (default: `http://localhost:5173`)
+- `E2E_DATABASE_URL` (optional; defaults to local docker-compose Postgres URL)

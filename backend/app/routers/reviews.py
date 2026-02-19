@@ -53,8 +53,8 @@ def create_review(
     if booking.renter_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    if booking.status != "APPROVED":
-        raise HTTPException(status_code=400, detail="Only approved bookings can be reviewed")
+    if booking.status not in ("APPROVED", "COMPLETED"):
+        raise HTTPException(status_code=400, detail="Only approved or completed bookings can be reviewed")
 
     if booking.end_date > date.today():
         raise HTTPException(status_code=400, detail="Review is allowed only after booking end date")

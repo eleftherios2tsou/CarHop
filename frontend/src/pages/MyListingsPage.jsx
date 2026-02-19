@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
+import StateNotice from "../components/ui/StateNotice";
 import EditListingModal from "../components/EditListingModal";
 import { apiFetch, apiFetchForm } from "../lib/api";
 
@@ -64,7 +65,7 @@ export default function MyListingsPage({ isAuthed, notify, onAuthError }) {
         onAuthError,
         body: JSON.stringify(patch),
       });
-      notify(`Listing #${editCarId} updated ✅`, "ok");
+      notify(`Listing #${editCarId} updated`, "ok");
       await loadCarDetail(editCarId);
       await fetchMyCars();
       closeEditModal();
@@ -98,7 +99,7 @@ export default function MyListingsPage({ isAuthed, notify, onAuthError }) {
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
       await apiFetchForm(`/cars/${editCarId}/photos`, fd, { onAuthError });
-      notify("Photos uploaded ✅", "ok");
+      notify("Photos uploaded", "ok");
       await loadCarDetail(editCarId);
       await fetchMyCars();
     } catch (e) {
@@ -116,7 +117,7 @@ export default function MyListingsPage({ isAuthed, notify, onAuthError }) {
         method: "DELETE",
         onAuthError,
       });
-      notify("Photo deleted ✅", "ok");
+      notify("Photo deleted", "ok");
       await loadCarDetail(editCarId);
       await fetchMyCars();
     } catch (e) {
@@ -155,13 +156,13 @@ export default function MyListingsPage({ isAuthed, notify, onAuthError }) {
         busy={{ saving: busySaving, editUpload: busyUpload }}
       />
 
-      <Card title="My Listings" subtitle="Manage your listings: edit details + manage photos.">
+      <Card title="My Listings" subtitle="Manage your listings: edit details and manage photos.">
         {!isAuthed ? (
-          <p className="muted">Login to view your listings.</p>
+          <StateNotice title="Login required" detail="Sign in to manage your own listings." />
         ) : busyCars && myCars.length === 0 ? (
-          <p className="muted">Loading…</p>
+          <StateNotice title="Loading listings..." detail="Fetching your published cars." />
         ) : myCars.length === 0 ? (
-          <p className="muted">You haven't listed any cars yet.</p>
+          <StateNotice title="No listings yet" detail="Create your first listing from the List Car tab." />
         ) : (
           <div className="stack">
             {myCars.map((c) => {
@@ -173,13 +174,11 @@ export default function MyListingsPage({ isAuthed, notify, onAuthError }) {
                 <div className="rowCard" key={c.id} style={{ alignItems: "flex-start" }}>
                   <div className="rowCardMain" style={{ flex: 1 }}>
                     <div className="rowCardTitle">
-                      #{c.id} · {c.make} {c.model}{" "}
-                      <span className="muted">· {c.year}</span>
+                      #{c.id} - {c.make} {c.model} <span className="muted">- {c.year}</span>
                     </div>
 
                     <div className="rowCardSub">
-                      £<span className="mono">{c.daily_price}</span>/day ·{" "}
-                      <span className="mono">{c.city || "—"}</span>
+                      GBP <span className="mono">{c.daily_price}</span>/day - <span className="mono">{c.city || "-"}</span>
                     </div>
 
                     {cover ? (
@@ -218,40 +217,37 @@ export default function MyListingsPage({ isAuthed, notify, onAuthError }) {
                       <div style={{ marginTop: 12 }}>
                         <div className="divider" />
                         <div className="tiny muted" style={{ marginBottom: 10 }}>
-                          Listing details (read-only). Use{" "}
-                          <span className="mono">Edit</span> to change fields.
+                          Listing details (read-only). Use <span className="mono">Edit</span> to change fields.
                         </div>
                         {!detail ? (
-                          <div className="tiny muted">Loading…</div>
+                          <div className="tiny muted">Loading...</div>
                         ) : (
                           <div className="grid2">
                             <div className="kv">
                               <div className="k">Status</div>
                               <div className="v">
-                                <Badge tone={detail.status === "AVAILABLE" ? "ok" : "warn"}>
-                                  {detail.status}
-                                </Badge>
+                                <Badge tone={detail.status === "AVAILABLE" ? "ok" : "warn"}>{detail.status}</Badge>
                               </div>
                             </div>
                             <div className="kv">
                               <div className="k">Postcode</div>
-                              <div className="v mono">{detail.postcode || "—"}</div>
+                              <div className="v mono">{detail.postcode || "-"}</div>
                             </div>
                             <div className="kv">
                               <div className="k">Transmission</div>
-                              <div className="v mono">{detail.transmission || "—"}</div>
+                              <div className="v mono">{detail.transmission || "-"}</div>
                             </div>
                             <div className="kv">
                               <div className="k">Fuel</div>
-                              <div className="v mono">{detail.fuel_type || "—"}</div>
+                              <div className="v mono">{detail.fuel_type || "-"}</div>
                             </div>
                             <div className="kv">
                               <div className="k">Seats</div>
-                              <div className="v mono">{detail.seats ?? "—"}</div>
+                              <div className="v mono">{detail.seats ?? "-"}</div>
                             </div>
                             <div className="kv">
                               <div className="k">Doors</div>
-                              <div className="v mono">{detail.doors ?? "—"}</div>
+                              <div className="v mono">{detail.doors ?? "-"}</div>
                             </div>
                           </div>
                         )}

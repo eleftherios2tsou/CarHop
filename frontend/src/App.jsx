@@ -148,7 +148,7 @@ export default function App() {
               Logout
             </Button>
           ) : (
-            <div className="tiny">Tip: register → verify → login</div>
+            <div className="tiny">Tip: register - verify - login</div>
           )}
         </div>
       </aside>
@@ -157,7 +157,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <h1 className="pageTitle">{active}</h1>
-            <p className="pageSub">The new Era of commuting</p>
+            <p className="pageSub">Reliable peer-to-peer car rental platform</p>
           </div>
         </header>
 
@@ -179,7 +179,6 @@ export default function App() {
               await fetchProfile();
               setActive("Profile");
             }}
-            setActive={setActive}
           />
         )}
 
@@ -241,3 +240,4 @@ export default function App() {
     </div>
   );
 }
+
