@@ -154,10 +154,12 @@ export default function ProfilePage({
               <div className="k">DoB</div>
               <div className="v mono">{profile.date_of_birth}</div>
             </div>
-            <div className="kv">
-              <div className="k">Role</div>
-              <div className="v mono">{profile.role || "USER"}</div>
-            </div>
+            {isAdmin && (
+              <div className="kv">
+                <div className="k">Role</div>
+                <div className="v mono">{profile.role || "USER"}</div>
+              </div>
+            )}
             <div className="kv">
               <div className="k">Email verified</div>
               <div className="v">

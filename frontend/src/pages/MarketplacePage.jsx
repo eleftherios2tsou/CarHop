@@ -145,6 +145,16 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
       }
     >
       <div className="row" style={{ marginBottom: 8 }}>
+        <label className="field" style={{ flex: 2 }}>
+          <span className="fieldLabel">City or location</span>
+          <input
+            className="input"
+            type="text"
+            placeholder="e.g. Bristol"
+            value={filters.city}
+            onChange={(e) => setFilter("city", e.target.value)}
+          />
+        </label>
         <label className="field" style={{ flex: 1 }}>
           <span className="fieldLabel">From</span>
           <input
@@ -184,17 +194,6 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
       {filtersOpen ? (
         <div className="filterPanel" style={{ marginTop: 10 }}>
           <div className="grid3" style={{ marginBottom: 8 }}>
-            <label className="field">
-              <span className="fieldLabel">City</span>
-              <input
-                className="input"
-                type="text"
-                placeholder="e.g. Bristol"
-                value={filters.city}
-                onChange={(e) => setFilter("city", e.target.value)}
-              />
-            </label>
-
             <label className="field">
               <span className="fieldLabel">Min price (GBP/day)</span>
               <input

@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 import { apiFetch } from "./lib/api";
 import Toast from "./components/ui/Toast";
-import Button from "./components/ui/Button";
 
 import MarketplacePage from "./pages/MarketplacePage";
 import AuthPage from "./pages/AuthPage";
@@ -20,6 +19,16 @@ export default function App() {
   const [active, setActive] = useState("Marketplace");
   const [toast, setToast] = useState({ tone: "info", msg: "" });
   const [busyLogout, setBusyLogout] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const isAuthed = useMemo(() => !!profile, [profile]);
   const isAdmin = useMemo(() => profile?.role === "ADMIN", [profile]);
@@ -40,7 +49,7 @@ export default function App() {
     const items = [{ key: "Marketplace", label: "Marketplace" }];
 
     if (!isAuthed) {
-      items.push({ key: "Auth", label: "Auth" });
+      items.push({ key: "Auth", label: "Login / Register" });
       return items;
     }
 
@@ -121,45 +130,68 @@ export default function App() {
         onClose={() => setToast({ tone: "info", msg: "" })}
       />
 
-      <aside className="sidebar">
-        <div className="brand">
+      <header className="topbar">
+        <button
+          className="topbarBrand"
+          onClick={() => { setActive("Marketplace"); setMenuOpen(false); }}
+        >
           <div className="logo">CH</div>
-          <div>
-            <div className="brandName">CarHop</div>
-            <div className="brandSub">P2P Car Rental</div>
-          </div>
-        </div>
+          <span className="brandName">CarHop</span>
+        </button>
 
-        <nav className="nav">
-          {navItems.map((it) => (
-            <button
-              key={it.key}
-              className={active === it.key ? "navItem navItemActive" : "navItem"}
-              onClick={() => setActive(it.key)}
-            >
-              {it.label}
-            </button>
-          ))}
-        </nav>
+        <button
+          className={active === "Marketplace" ? "topbarLink topbarLinkActive" : "topbarLink"}
+          onClick={() => { setActive("Marketplace"); setMenuOpen(false); }}
+        >
+          Marketplace
+        </button>
 
-        <div className="sidebarFooter">
-          {isAuthed ? (
-            <Button variant="danger" onClick={logout} loading={busyLogout}>
-              Logout
-            </Button>
-          ) : (
-            <div className="tiny">Tip: register - verify - login</div>
+        <div className="topbarSpacer" />
+
+        <div className="navDropdownWrap" ref={menuRef}>
+          <button
+            className="navIconBtn"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label="Navigation menu"
+          >
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="16" cy="16" r="15" stroke="currentColor" strokeWidth="1.5"/>
+              <circle cx="16" cy="13" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M7 26c0-5 4-8 9-8s9 3 9 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+
+          {menuOpen && (
+            <div className="navDropdownMenu">
+              {navItems
+                .filter((it) => it.key !== "Marketplace")
+                .map((it) => (
+                  <button
+                    key={it.key}
+                    className={active === it.key ? "navDropdownItem navDropdownItemActive" : "navDropdownItem"}
+                    onClick={() => { setActive(it.key); setMenuOpen(false); }}
+                  >
+                    {it.label}
+                  </button>
+                ))}
+              {isAuthed && (
+                <>
+                  <div className="navDropdownDivider" />
+                  <button
+                    className="navDropdownItem navDropdownItemDanger"
+                    onClick={() => { logout(); setMenuOpen(false); }}
+                    disabled={busyLogout}
+                  >
+                    {busyLogout ? "Logging out…" : "Logout"}
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
-      </aside>
+      </header>
 
       <main className="main">
-        <header className="topbar">
-          <div>
-            <h1 className="pageTitle">{active}</h1>
-            <p className="pageSub">Reliable peer-to-peer car rental platform</p>
-          </div>
-        </header>
 
         {active === "Marketplace" && (
           <MarketplacePage
