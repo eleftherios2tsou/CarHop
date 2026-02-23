@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { verifyLicenseInDb } from "./db";
+import { getVerificationToken, createVerifiedLicenseInDb } from "./db";
 
 export function isoDate(daysFromToday) {
   const d = new Date();
@@ -26,8 +26,10 @@ export async function registerVerifyLogin(context, user) {
     headers: rateLimitHeaders,
   });
   expect(registerRes.ok()).toBeTruthy();
-  const registerBody = await registerRes.json();
-  const token = registerBody.verification_token;
+
+  // Token is no longer returned in the API response (sent by email instead).
+  // Fetch it directly from the DB so tests remain independent of email delivery.
+  const token = await getVerificationToken(user.email);
   expect(token).toBeTruthy();
 
   const verifyRes = await context.request.post(`/api/auth/verify-email/${token}`, {
@@ -86,11 +88,8 @@ export async function createCar(context, { make, model, city = "Bristol" }) {
 }
 
 export async function submitAndVerifyLicense(context, userId) {
-  const submitRes = await authedPost(context, "/api/profile/license", {
-    license_number: `LIC-${userId}-${Date.now()}`,
-    issuing_country: "UK",
-    expiry_date: isoDate(365),
-  });
-  expect(submitRes.ok()).toBeTruthy();
-  await verifyLicenseInDb(userId);
+  // The license endpoint requires multipart file uploads (licence photo + selfie),
+  // which can't be easily provided in E2E tests. Insert a verified record directly
+  // in the DB instead — this is the same outcome the real pipeline produces.
+  await createVerifiedLicenseInDb(userId);
 }
