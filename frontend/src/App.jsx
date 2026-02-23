@@ -105,9 +105,29 @@ export default function App() {
     }
   }
 
-  // Restore session on mount
+  // Restore session on mount + handle ?verify= email link
   useEffect(() => {
     fetchProfile();
+
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get("verify");
+    if (verifyToken) {
+      // Remove the param from the URL immediately so it doesn't persist on refresh
+      params.delete("verify");
+      const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", clean);
+
+      // Auto-call the verify endpoint
+      apiFetch(`/auth/verify-email/${verifyToken}`, { method: "POST" })
+        .then(() => {
+          notify("Email verified! You can now log in.", "ok");
+          setActive("Auth");
+        })
+        .catch((err) => {
+          notify(`Email verification failed: ${err.message}`, "bad");
+          setActive("Auth");
+        });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

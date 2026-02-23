@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_, exists, func, select
 
-from app.config import settings
 from app.deps import get_db, get_current_user, csrf_protect
+from app.services import storage
 from app.models.car import CarListing
 from app.models.car_photo import CarPhoto
 from app.models.booking import BookingRequest
@@ -36,7 +36,7 @@ def _ensure_owner_or_admin(car: CarListing, current_user: User):
         raise HTTPException(status_code=403, detail="Not allowed to modify this car")
 
 
-def _save_local_upload(car_id: int, up: UploadFile) -> tuple[str, str]:
+def _save_upload(car_id: int, up: UploadFile) -> tuple[str, str]:
     if not up.content_type or not up.content_type.startswith(ALLOWED_PREFIX):
         raise HTTPException(status_code=400, detail=f"Only images are allowed ({ALLOWED_PREFIX}*)")
 
@@ -47,21 +47,12 @@ def _save_local_upload(car_id: int, up: UploadFile) -> tuple[str, str]:
 
     name = f"{uuid4().hex}{ext}"
     storage_key = f"cars/{car_id}/{name}"
-
-    disk_path = os.path.join(settings.uploads_dir, storage_key)
-    os.makedirs(os.path.dirname(disk_path), exist_ok=True)
-
-    contents = up.file.read()
-    with open(disk_path, "wb") as f:
-        f.write(contents)
-
-    url = f"/uploads/{storage_key}"
+    data = up.file.read()
+    url = storage.save_file(storage_key, data, up.content_type or "image/jpeg")
     return storage_key, url
 
 
-# =========================
-# LIST MARKETPLACE CARS
-# =========================
+
 @router.get("/", response_model=PaginatedCars)
 def list_cars(
     db: Session = Depends(get_db),
@@ -154,9 +145,6 @@ def list_cars(
     return PaginatedCars.build(cars, total, page, page_size)
 
 
-# =========================
-# MY LISTINGS (IMPORTANT: define before /{car_id})
-# =========================
 @router.get("/mine", response_model=list[CarOut])
 def my_listings(
     db: Session = Depends(get_db),
@@ -171,9 +159,6 @@ def my_listings(
     )
 
 
-# =========================
-# GET CAR DETAIL
-# =========================
 @router.get("/{car_id}", response_model=CarDetailOut)
 def get_car(car_id: int, db: Session = Depends(get_db)):
     car = (
@@ -187,9 +172,7 @@ def get_car(car_id: int, db: Session = Depends(get_db)):
     return car
 
 
-# =========================
-# CREATE CAR
-# =========================
+
 @router.post("/", response_model=CarOut, dependencies=[Depends(csrf_protect)])
 def create_car(
     payload: CarCreate,
@@ -203,9 +186,7 @@ def create_car(
     return car
 
 
-# =========================
-# UPLOAD PHOTOS
-# =========================
+
 @router.post("/{car_id}/photos", response_model=CarPhotosOut, dependencies=[Depends(csrf_protect)])
 def upload_car_photos(
     car_id: int,
@@ -234,10 +215,7 @@ def upload_car_photos(
     next_pos = max([p.position for p in car.photos], default=-1) + 1
 
     for up in files:
-        if settings.storage_backend != "local":
-            raise HTTPException(status_code=501, detail="S3 storage not enabled yet")
-
-        storage_key, url = _save_local_upload(car_id, up)
+        storage_key, url = _save_upload(car_id, up)
         photo = CarPhoto(car_id=car_id, storage_key=storage_key, url=url, position=next_pos)
         next_pos += 1
         db.add(photo)
@@ -253,9 +231,6 @@ def upload_car_photos(
     return {"car_id": car_id, "photo_urls": car.photo_urls}
 
 
-# =========================
-# DELETE CAR LISTING
-# =========================
 @router.delete("/{car_id}", dependencies=[Depends(csrf_protect)])
 def delete_car(
     car_id: int,
@@ -287,14 +262,8 @@ def delete_car(
         return {"ok": True, "deleted_id": car_id, "soft_deleted": True}
 
     # Hard delete only when there are no linked bookings.
-    if settings.storage_backend == "local":
-        for p in car.photos or []:
-            disk_path = os.path.join(settings.uploads_dir, p.storage_key)
-            try:
-                if os.path.exists(disk_path):
-                    os.remove(disk_path)
-            except Exception:
-                pass
+    for p in car.photos or []:
+        storage.delete_file(p.storage_key)
 
     db.delete(car)
     db.commit()
@@ -302,9 +271,7 @@ def delete_car(
     return {"ok": True, "deleted_id": car_id, "soft_deleted": False}
 
 
-# =========================
-# PATCH UPDATE LISTING
-# =========================
+
 @router.patch("/{car_id}", response_model=CarOut, dependencies=[Depends(csrf_protect)])
 def update_car(
     car_id: int,
@@ -339,9 +306,6 @@ def update_car(
     return car
 
 
-# =========================
-# DELETE PHOTO
-# =========================
 @router.delete("/{car_id}/photos/{photo_id}", dependencies=[Depends(csrf_protect)])
 def delete_car_photo(
     car_id: int,
@@ -368,13 +332,7 @@ def delete_car_photo(
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    if settings.storage_backend == "local":
-        disk_path = os.path.join(settings.uploads_dir, photo.storage_key)
-        try:
-            if os.path.exists(disk_path):
-                os.remove(disk_path)
-        except Exception:
-            pass
+    storage.delete_file(photo.storage_key)
 
     db.delete(photo)
     db.commit()

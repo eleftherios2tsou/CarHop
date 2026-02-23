@@ -28,12 +28,11 @@ class Settings(BaseSettings):
 
     # Uploads
     uploads_dir: str = Field("/app/uploads", alias="UPLOADS_DIR")
-    storage_backend: str = Field("local", alias="STORAGE_BACKEND")  # local | (future: s3)
-    s3_bucket: str | None = Field(None, alias="S3_BUCKET")
-    s3_region: str | None = Field(None, alias="S3_REGION")
-    s3_access_key_id: str | None = Field(None, alias="S3_ACCESS_KEY_ID")
-    s3_secret_access_key: str | None = Field(None, alias="S3_SECRET_ACCESS_KEY")
-    s3_endpoint_url: str | None = Field(None, alias="S3_ENDPOINT_URL")
+    storage_backend: str = Field("local", alias="STORAGE_BACKEND")  # "local" | "azure"
+
+    # Azure Blob Storage (used when STORAGE_BACKEND=azure)
+    azure_storage_connection_string: str | None = Field(None, alias="AZURE_STORAGE_CONNECTION_STRING")
+    azure_container_name: str = Field("carhop-uploads", alias="AZURE_CONTAINER_NAME")
 
     # Cookies
 

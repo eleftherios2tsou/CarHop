@@ -14,6 +14,7 @@ class ProfileOut(BaseModel):
     role: str
     has_license: bool
     license_verified: bool
+    license_status: str | None = None
     profile_complete: bool
     payout_connected: bool
     payout_account_id: str | None = None

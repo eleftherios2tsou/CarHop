@@ -23,6 +23,8 @@ from app.security import (
     clear_auth_cookies,
     REFRESH_COOKIE,
 )
+from app.services.email import send_verification_email
+from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -75,7 +77,9 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
     db.add(token)
     db.commit()
 
-    return {"message": "Registered. Verify your email.", "verification_token": token.token}
+    send_verification_email(user.email, token.token, settings)
+
+    return {"message": "Registered. Please check your email to verify your account."}
 
 
 @router.post("/verify-email/{token}")

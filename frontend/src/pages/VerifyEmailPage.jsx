@@ -22,7 +22,7 @@ export default function VerifyEmailPage({ notify, setActive }) {
   }
 
   return (
-    <Card title="Verify Email" subtitle="Paste the token sent to your email.">
+    <Card title="Verify Email" subtitle="Paste the token from your verification email, or from Docker logs in dev mode.">
       <div className="form" style={{ maxWidth: 520 }}>
         <Field
           label="Verification token"

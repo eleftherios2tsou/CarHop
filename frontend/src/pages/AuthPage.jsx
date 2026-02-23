@@ -11,16 +11,15 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [dob, setDob] = useState("");
-  const [verificationToken, setVerificationToken] = useState("");
+  const [registered, setRegistered] = useState(false);
   const [busyAuth, setBusyAuth] = useState(false);
-  const [busyVerify, setBusyVerify] = useState(false);
 
   async function handleAuth(e) {
     e.preventDefault();
     setBusyAuth(true);
     try {
       if (authMode === "register") {
-        const data = await apiFetch("/auth/register", {
+        await apiFetch("/auth/register", {
           method: "POST",
           body: JSON.stringify({
             email,
@@ -29,8 +28,8 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
             date_of_birth: dob,
           }),
         });
-        if (data?.verification_token) setVerificationToken(data.verification_token);
-        notify("Registered successfully. Verify your email using the token below.", "ok");
+        setRegistered(true);
+        notify("Account created! Check your inbox for a verification email.", "ok");
       } else {
         await apiFetch("/auth/login", {
           method: "POST",
@@ -46,89 +45,83 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
     }
   }
 
-  async function handleVerifyEmail() {
-    setBusyVerify(true);
-    try {
-      await apiFetch(`/auth/verify-email/${verificationToken}`, { method: "POST" });
-      notify("Email verified. You can now login.", "ok");
-      setAuthMode("login");
-      setVerificationToken("");
-    } catch (err) {
-      notify(`Verify error: ${err.message}`, "bad");
-    } finally {
-      setBusyVerify(false);
-    }
-  }
-
-  async function handleLoginAfterVerify() {
-    setBusyAuth(true);
-    try {
-      await apiFetch("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      notify("Logged in successfully.", "ok");
-      await onLoginSuccess();
-    } catch (err) {
-      notify(`Login error: ${err.message}`, "bad");
-    } finally {
-      setBusyAuth(false);
-    }
-  }
-
   return (
-    <div className="twoCol">
-      <Card title="Register / Login" subtitle="Cookie auth with CSRF and refresh tokens.">
+    <div>
+      <Card title="Register / Login">
         <div className="segmented">
           <button
             className={authMode === "register" ? "segBtn segBtnActive" : "segBtn"}
-            onClick={() => setAuthMode("register")}
+            onClick={() => { setAuthMode("register"); setRegistered(false); }}
             type="button"
           >
             Register
           </button>
           <button
             className={authMode === "login" ? "segBtn segBtnActive" : "segBtn"}
-            onClick={() => setAuthMode("login")}
+            onClick={() => { setAuthMode("login"); setRegistered(false); }}
             type="button"
           >
             Login
           </button>
         </div>
 
-        <form className="form" onSubmit={handleAuth}>
-          <Field
-            label="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@carhop.com"
-          />
-          <Field
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="password"
-          />
-          {authMode === "register" ? (
-            <>
-              <Field
-                label="Full name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-              />
-              <Field
-                label="Date of birth"
-                type="date"
-                value={dob}
-                onChange={(e) => setDob(e.target.value)}
-              />
-            </>
-          ) : null}
-          <Button type="submit" loading={busyAuth}>
-            {authMode === "register" ? "Create account" : "Login"}
-          </Button>
-        </form>
+        {registered ? (
+          <div style={{
+            marginTop: 16,
+            padding: "16px",
+            background: "var(--ok-bg)",
+            border: "1px solid var(--ok-line)",
+            borderRadius: 8,
+            color: "var(--ok-text)",
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Check your inbox</div>
+            <div className="tiny">
+              A verification link has been sent to <strong>{email}</strong>.<br />
+              Click the link in the email to activate your account, then log in here.
+            </div>
+            <button
+              className="tiny"
+              style={{ marginTop: 12, background: "none", border: "none", cursor: "pointer", color: "var(--ok-text)", textDecoration: "underline", padding: 0 }}
+              onClick={() => { setAuthMode("login"); setRegistered(false); }}
+            >
+              Go to login
+            </button>
+          </div>
+        ) : (
+          <form className="form" onSubmit={handleAuth}>
+            <Field
+              label="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@carhop.com"
+            />
+            <Field
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="password"
+            />
+            {authMode === "register" && (
+              <>
+                <Field
+                  label="Full name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+                <Field
+                  label="Date of birth"
+                  type="date"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                />
+              </>
+            )}
+            <Button type="submit" loading={busyAuth}>
+              {authMode === "register" ? "Create account" : "Login"}
+            </Button>
+          </form>
+        )}
 
         <div className="divider" />
         <div className="inline">
@@ -138,37 +131,6 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
           ) : (
             <Badge tone="bad">Not logged in</Badge>
           )}
-        </div>
-      </Card>
-
-      <Card
-        title="Email Verification"
-        subtitle="Register returns a verification token (simulated email)."
-      >
-        <div className="form">
-          <Field
-            label="Verification token"
-            value={verificationToken}
-            onChange={(e) => setVerificationToken(e.target.value)}
-            placeholder="paste token here"
-          />
-          <div className="row">
-            <Button
-              onClick={handleVerifyEmail}
-              loading={busyVerify}
-              disabled={!verificationToken}
-            >
-              Verify Email
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={handleLoginAfterVerify}
-              loading={busyAuth}
-              disabled={!verificationToken}
-            >
-              Login after verify
-            </Button>
-          </div>
         </div>
       </Card>
     </div>

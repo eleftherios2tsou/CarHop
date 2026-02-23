@@ -17,7 +17,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-# ── Low-level send ──────────────────────────────────────────────────────────
 
 
 def _wrap(body: str) -> str:
@@ -69,7 +68,6 @@ def send_email(to: str, subject: str, body_html: str) -> None:
         logger.error("Failed to send email to %s: %s", to, exc)
 
 
-# ── Notification helpers ─────────────────────────────────────────────────────
 
 
 def notify_booking_requested(
