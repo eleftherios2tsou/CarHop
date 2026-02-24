@@ -19,7 +19,7 @@ describe("MarketplacePage", () => {
     );
 
     const from = screen.getByLabelText("From");
-    const to = screen.getByLabelText("To");
+    const to = screen.getByLabelText("Until");
 
     fireEvent.change(from, { target: { value: "2026-02-12" } });
     fireEvent.change(to, { target: { value: "2026-02-10" } });
