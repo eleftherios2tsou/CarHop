@@ -60,6 +60,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 .main {
@@ -67,6 +68,12 @@ body {
   max-width: 1260px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* Full-width variant used by Marketplace page */
+.mainFull {
+  max-width: 100%;
+  padding: 0;
 }
 
 /* Topbar nav */
@@ -913,7 +920,321 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* Responsive */
+/* ── Marketplace landing page ── */
+.marketplacePage {
+  /* Stretch full-width, breaking out of .main's max-width */
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 80px 24px 72px;
+  text-align: center;
+  background:
+    radial-gradient(ellipse 65% 70% at 72% 30%, rgba(14, 165, 233, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 65% at 22% 75%, rgba(15, 118, 110, 0.24) 0%, transparent 50%),
+    linear-gradient(160deg, #0b1622 0%, #0e2436 42%, #0c2132 68%, #0b1924 100%);
+}
+
+/* subtle noise texture overlay */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.heroInner {
+  position: relative;
+  z-index: 1;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.heroTitle {
+  margin: 0 0 14px;
+  font-family: var(--font-head);
+  font-size: clamp(28px, 5vw, 50px);
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+.heroSubtitle {
+  margin: 0 0 36px;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.68);
+  font-weight: 400;
+}
+
+/* ── AI search bar ── */
+.aiBar {
+  max-width: 800px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  padding: 10px 10px 10px 16px;
+  backdrop-filter: blur(10px);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.aiBar:focus-within {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.aiBarBusy {
+  border-color: rgba(15, 118, 110, 0.5);
+  background: rgba(15, 118, 110, 0.08);
+  animation: aiBarPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes aiBarPulse {
+  0%, 100% { border-color: rgba(15, 118, 110, 0.4); }
+  50%       { border-color: rgba(14, 165, 233, 0.6); }
+}
+
+.aiBarIcon {
+  color: rgba(255, 255, 255, 0.65);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.aiBarInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 400;
+  padding: 0;
+}
+
+.aiBarInput::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.aiBarInput:disabled {
+  opacity: 0.6;
+}
+
+.aiBarBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 140ms ease;
+}
+
+.aiBarBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.aiBarBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── "or" divider ── */
+.aiSep {
+  max-width: 800px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.aiSepLine {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.aiSepText {
+  color: rgba(255, 255, 255, 0.36);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ── AI fill glow on heroBar ── */
+@keyframes aiGlow {
+  0%   { box-shadow: 0 24px 56px rgba(0,0,0,.35), 0 0 0 0   rgba(15,118,110,0);    }
+  25%  { box-shadow: 0 24px 56px rgba(0,0,0,.35), 0 0 0 6px rgba(15,118,110,.38);  }
+  100% { box-shadow: 0 24px 56px rgba(0,0,0,.35), 0 0 0 0   rgba(15,118,110,0);    }
+}
+
+.heroBarAiFilled {
+  animation: aiGlow 1.4s ease forwards;
+}
+
+/* ── Hero search bar ── */
+.heroBar {
+  display: flex;
+  align-items: stretch;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.heroBarField {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px 20px;
+  cursor: text;
+  min-width: 0;
+  transition: background-color 120ms ease;
+}
+
+.heroBarField:hover {
+  background: var(--surface-alt);
+}
+
+.heroCityField {
+  flex: 1.5;
+}
+
+.heroBarLabel {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-soft);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.heroBarInput {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  padding: 0;
+  width: 100%;
+}
+
+.heroBarInput::placeholder {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.heroBarSep {
+  width: 1px;
+  background: var(--line);
+  align-self: stretch;
+  margin: 10px 0;
+  flex-shrink: 0;
+}
+
+.heroBarBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 6px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(135deg, var(--brand), #0ea5e9);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: center;
+  transition: filter 140ms ease, transform 120ms ease;
+}
+
+.heroBarBtn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: scale(1.04);
+}
+
+.heroBarBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Marketplace body ── */
+.marketplaceContent {
+  max-width: 1260px;
+  margin: 0 auto;
+  padding: 28px 24px;
+}
+
+.marketplaceBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ── Hero responsive ── */
+@media (max-width: 760px) {
+  .hero {
+    padding: 52px 16px 44px;
+  }
+
+  .heroBar {
+    flex-direction: column;
+    border-radius: 16px;
+    overflow: visible;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  }
+
+  .heroBarField {
+    width: 100%;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+  }
+
+  .heroBarField:first-child {
+    border-radius: 16px 16px 0 0;
+  }
+
+  .heroBarSep {
+    display: none;
+  }
+
+  .heroBarBtn {
+    width: calc(100% - 12px);
+    margin: 6px;
+    border-radius: 12px;
+    height: 46px;
+  }
+}
+
+/* ── Responsive ── */
 @media (max-width: 1060px) {
   .appShell {
     grid-template-columns: 1fr;

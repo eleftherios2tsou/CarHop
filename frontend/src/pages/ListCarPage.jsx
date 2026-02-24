@@ -108,12 +108,64 @@ export default function ListCarPage({ gates, notify, onAuthError, onCarCreated }
       <form className="form" onSubmit={createCar} style={{ maxWidth: 900 }}>
         <div className="sectionTitle">Basics</div>
         <div className="grid2">
-          <Field
+          <SelectField
             label="Make"
             value={make}
             onChange={(e) => setMake(e.target.value)}
-            placeholder="Toyota"
             required
+            options={[
+              { value: "",               label: "Select a make…" },
+              { value: "Abarth",         label: "Abarth" },
+              { value: "Alfa Romeo",     label: "Alfa Romeo" },
+              { value: "Aston Martin",   label: "Aston Martin" },
+              { value: "Audi",           label: "Audi" },
+              { value: "Bentley",        label: "Bentley" },
+              { value: "BMW",            label: "BMW" },
+              { value: "BYD",            label: "BYD" },
+              { value: "Chevrolet",      label: "Chevrolet" },
+              { value: "Chrysler",       label: "Chrysler" },
+              { value: "Citroën",        label: "Citroën" },
+              { value: "Cupra",          label: "Cupra" },
+              { value: "Dacia",          label: "Dacia" },
+              { value: "Dodge",          label: "Dodge" },
+              { value: "DS",             label: "DS" },
+              { value: "Ferrari",        label: "Ferrari" },
+              { value: "Fiat",           label: "Fiat" },
+              { value: "Ford",           label: "Ford" },
+              { value: "Genesis",        label: "Genesis" },
+              { value: "Honda",          label: "Honda" },
+              { value: "Hyundai",        label: "Hyundai" },
+              { value: "Infiniti",       label: "Infiniti" },
+              { value: "Jaguar",         label: "Jaguar" },
+              { value: "Jeep",           label: "Jeep" },
+              { value: "Kia",            label: "Kia" },
+              { value: "Lamborghini",    label: "Lamborghini" },
+              { value: "Land Rover",     label: "Land Rover" },
+              { value: "Lexus",          label: "Lexus" },
+              { value: "Maserati",       label: "Maserati" },
+              { value: "Mazda",          label: "Mazda" },
+              { value: "McLaren",        label: "McLaren" },
+              { value: "Mercedes-Benz",  label: "Mercedes-Benz" },
+              { value: "MG",             label: "MG" },
+              { value: "MINI",           label: "MINI" },
+              { value: "Mitsubishi",     label: "Mitsubishi" },
+              { value: "Nissan",         label: "Nissan" },
+              { value: "Peugeot",        label: "Peugeot" },
+              { value: "Polestar",       label: "Polestar" },
+              { value: "Porsche",        label: "Porsche" },
+              { value: "Renault",        label: "Renault" },
+              { value: "Rolls-Royce",    label: "Rolls-Royce" },
+              { value: "SEAT",           label: "SEAT" },
+              { value: "Škoda",          label: "Škoda" },
+              { value: "Smart",          label: "Smart" },
+              { value: "Subaru",         label: "Subaru" },
+              { value: "Suzuki",         label: "Suzuki" },
+              { value: "Tesla",          label: "Tesla" },
+              { value: "Toyota",         label: "Toyota" },
+              { value: "Vauxhall",       label: "Vauxhall" },
+              { value: "Volkswagen",     label: "Volkswagen" },
+              { value: "Volvo",          label: "Volvo" },
+            ]}
           />
           <Field
             label="Model"

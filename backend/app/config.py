@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     api_base_url: str = Field("http://localhost:8000", alias="API_BASE_URL")
     cors_origins: str = Field("*", alias="CORS_ORIGINS")
 
+    # OpenAI (optional — AI search disabled if not set)
+    openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
+
     # Stripe payments
     stripe_secret_key: str | None = Field(None, alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(None, alias="STRIPE_WEBHOOK_SECRET")

@@ -11,6 +11,7 @@ from app.routers.reviews import router as reviews_router
 from app.routers.messages import router as messages_router
 from app.routers.disputes import router as disputes_router
 from app.routers.payments import router as payments_router
+from app.routers.search import router as search_router
 from app.config import settings
 
 app = FastAPI(title="CarHop API")
@@ -33,6 +34,7 @@ app.include_router(reviews_router)
 app.include_router(messages_router)
 app.include_router(disputes_router)
 app.include_router(payments_router)
+app.include_router(search_router)
 
 
 app.mount("/uploads", StaticFiles(directory=settings.uploads_dir), name="uploads")

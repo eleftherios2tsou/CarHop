@@ -59,6 +59,7 @@ def list_cars(
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
     city: str | None = Query(default=None),
+    make: str | None = Query(default=None),
     min_price: int | None = Query(default=None, ge=1),
     max_price: int | None = Query(default=None, ge=1),
     transmission: str | None = Query(default=None),
@@ -89,6 +90,8 @@ def list_cars(
 
     if city:
         q = q.filter(CarListing.city.ilike(f"%{city}%"))
+    if make:
+        q = q.filter(CarListing.make.ilike(f"%{make}%"))
     if min_price is not None:
         q = q.filter(CarListing.daily_price >= min_price)
     if max_price is not None:

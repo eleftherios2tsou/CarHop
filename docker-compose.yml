@@ -54,6 +54,7 @@ services:
       PAYMENTS_CURRENCY: ${PAYMENTS_CURRENCY:-gbp}
       AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
       AZURE_CONTAINER_NAME: ${AZURE_CONTAINER_NAME:-carhop-uploads}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"

@@ -211,7 +211,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="main">
+      <main className={active === "Marketplace" ? "main mainFull" : "main"}>
 
         {active === "Marketplace" && (
           <MarketplacePage
