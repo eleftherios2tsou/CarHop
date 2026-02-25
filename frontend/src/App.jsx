@@ -24,6 +24,7 @@ export default function App() {
   const [toast, setToast] = useState({ tone: "info", msg: "" });
   const [busyLogout, setBusyLogout] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [resetToken, setResetToken] = useState(null);
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -118,6 +119,8 @@ export default function App() {
 
     const params = new URLSearchParams(window.location.search);
     const verifyToken = params.get("verify");
+    const resetTok = params.get("reset");
+
     if (verifyToken) {
       // Remove the param from the URL immediately so it doesn't persist on refresh
       params.delete("verify");
@@ -134,6 +137,14 @@ export default function App() {
           notify(`Email verification failed: ${err.message}`, "bad");
           setActive("Auth");
         });
+    }
+
+    if (resetTok) {
+      params.delete("reset");
+      const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", clean);
+      setResetToken(resetTok);
+      setActive("Auth");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -245,6 +256,7 @@ export default function App() {
               setActive("Profile");
             }}
             onNavigate={setActive}
+            resetToken={resetToken}
           />
         )}
 

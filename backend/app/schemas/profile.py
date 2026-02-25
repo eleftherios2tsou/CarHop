@@ -42,6 +42,9 @@ class PublicProfileOut(BaseModel):
     avatar_url: str | None = None
     bio: str | None = None
     member_since: datetime
+    listing_count: int = 0
+    avg_rating: float | None = None
+    review_count: int = 0
 
     class Config:
         from_attributes = True

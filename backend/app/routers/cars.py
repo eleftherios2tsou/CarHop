@@ -146,6 +146,23 @@ def list_cars(
             }
             for row in review_rows
         }
+
+        car_ids = [c.id for c in cars]
+        car_review_rows = (
+            db.query(
+                Review.car_id,
+                func.count(Review.id).label("cnt"),
+                func.avg(Review.rating).label("avg"),
+            )
+            .filter(
+                Review.car_id.in_(car_ids),
+                Review.review_type == "CAR_REVIEW",
+            )
+            .group_by(Review.car_id)
+            .all()
+        )
+        car_review_map = {r.car_id: (float(r.avg), int(r.cnt)) for r in car_review_rows}
+
         for car in cars:
             if car.owner:
                 car.owner.listing_count = listing_count_map.get(car.owner_id, 0)
@@ -153,6 +170,9 @@ def list_cars(
                 review_meta = review_map.get(car.owner_id, {"review_count": 0, "avg_rating": None})
                 car.owner.review_count = review_meta["review_count"]
                 car.owner.avg_rating = review_meta["avg_rating"]
+            cr = car_review_map.get(car.id)
+            car.car_avg_rating = cr[0] if cr else None
+            car.car_review_count = cr[1] if cr else 0
 
     return PaginatedCars.build(cars, total, page, page_size)
 

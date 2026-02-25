@@ -80,6 +80,21 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
   const [disputeModalBookingId, setDisputeModalBookingId] = useState(null);
   const pollRef = useRef(null);
 
+  // ── Unread message tracking ──────────────────────────────────────────────
+  function getSeenId(bookingId) {
+    return Number(localStorage.getItem(`ch_msg_seen_${bookingId}`) ?? 0);
+  }
+  function markSeen(bookingId, messages) {
+    const maxId = Math.max(0, ...messages.map((m) => m.id));
+    if (maxId > 0) localStorage.setItem(`ch_msg_seen_${bookingId}`, String(maxId));
+  }
+  function hasUnread(bookingId) {
+    const msgs = messagesByBooking[bookingId];
+    if (!msgs || msgs.length === 0) return false;
+    const latestId = Math.max(...msgs.map((m) => m.id));
+    return latestId > getSeenId(bookingId);
+  }
+
   async function fetchMine(targetPage = page) {
     setBusy(true);
     try {
@@ -112,10 +127,9 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
     pollRef.current = setInterval(async () => {
       try {
         const data = await apiFetch(`/messages/booking/${openThreadId}`, { onAuthError });
-        setMessagesByBooking((prev) => ({
-          ...prev,
-          [openThreadId]: Array.isArray(data) ? data : [],
-        }));
+        const msgs = Array.isArray(data) ? data : [];
+        setMessagesByBooking((prev) => ({ ...prev, [openThreadId]: msgs }));
+        markSeen(openThreadId, msgs); // thread is open, so mark as read
       } catch {
         // ignore polling errors silently
       }
@@ -231,14 +245,13 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
     }
   }
 
-  async function loadThread(bookingId) {
+  async function loadThread(bookingId, markAsRead = false) {
     setBusyThreadLoad(bookingId);
     try {
       const data = await apiFetch(`/messages/booking/${bookingId}`, { onAuthError });
-      setMessagesByBooking((prev) => ({
-        ...prev,
-        [bookingId]: Array.isArray(data) ? data : [],
-      }));
+      const msgs = Array.isArray(data) ? data : [];
+      setMessagesByBooking((prev) => ({ ...prev, [bookingId]: msgs }));
+      if (markAsRead) markSeen(bookingId, msgs);
     } catch (err) {
       notify(`Message load error: ${err.message}`, "bad");
     } finally {
@@ -252,7 +265,7 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
       return;
     }
     setOpenThreadId(bookingId);
-    await loadThread(bookingId);
+    await loadThread(bookingId, true); // mark as read on open
   }
 
   function setMessageDraft(bookingId, content) {
@@ -357,7 +370,29 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                       onClick={() => toggleThread(b.id)}
                       loading={busyThreadLoad === b.id}
                     >
-                      {threadOpen ? "Hide Messages" : "Messages"}
+                      {threadOpen ? "Hide Messages" : (
+                        <>
+                          Messages
+                          {hasUnread(b.id) && (
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginLeft: 6,
+                              minWidth: 16,
+                              height: 16,
+                              borderRadius: 8,
+                              background: "var(--brand, #2563eb)",
+                              color: "#fff",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "0 4px",
+                            }}>
+                              !
+                            </span>
+                          )}
+                        </>
+                      )}
                     </Button>
 
                     {!dispute ? (

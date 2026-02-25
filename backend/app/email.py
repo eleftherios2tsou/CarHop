@@ -224,6 +224,63 @@ def notify_payment_received(
     send_email(owner_email, subject, _wrap(body))
 
 
+def notify_password_reset(to_email: str, reset_url: str) -> None:
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">Reset your password 🔑</h2>
+      <p>We received a request to reset your CarHop password.</p>
+      <p>Click the button below to set a new password. This link expires in <strong>1 hour</strong>.</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="{reset_url}"
+           style="background:#0f766e;color:#fff;padding:12px 28px;border-radius:8px;
+                  text-decoration:none;font-weight:700;display:inline-block">
+          Reset Password
+        </a>
+      </p>
+      <p style="font-size:13px;color:#5b6472">
+        If you didn't request this, you can safely ignore this email.
+        Your password won't change until you click the link above.
+      </p>
+    """
+    send_email(to_email, "Reset your CarHop password", _wrap(body))
+
+
+def notify_damage_report_filed(
+    renter_email: str,
+    renter_name: str,
+    owner_name: str,
+    car: str,
+    booking_id: int,
+) -> None:
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">Damage report filed ⚠️</h2>
+      <p>Hi <strong>{renter_name}</strong>,</p>
+      <p>The owner <strong>{owner_name}</strong> has filed a damage report for your rental of
+         <strong>{car}</strong> (booking #{booking_id}).</p>
+      <p>The report is under admin review. If resolved in your favour, your £250 security deposit
+         will be released back to you.</p>
+      <p>Log in to CarHop to view the details.</p>
+    """
+    send_email(renter_email, f"Damage report filed — booking #{booking_id}", _wrap(body))
+
+
+def notify_review_received(
+    recipient_email: str,
+    recipient_name: str,
+    reviewer_name: str,
+    rating: int,
+    context: str,
+) -> None:
+    stars = "★" * rating + "☆" * (5 - rating)
+    body = f"""
+      <h2 style="margin:0 0 12px;font-size:18px">You have a new review ⭐</h2>
+      <p>Hi <strong>{recipient_name}</strong>,</p>
+      <p><strong>{reviewer_name}</strong> left you a review for <strong>{context}</strong>.</p>
+      <p style="font-size:22px;letter-spacing:2px;margin:12px 0">{stars}</p>
+      <p>Log in to CarHop to see the full review.</p>
+    """
+    send_email(recipient_email, "You received a new review on CarHop", _wrap(body))
+
+
 def notify_escrow_released(
     owner_email: str,
     owner_name: str,

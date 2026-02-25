@@ -12,10 +12,15 @@ from app.database import SessionLocal
 from app.deps import get_db, get_current_verified_user, csrf_protect
 from app.security import clear_auth_cookies
 from app.services import storage
+from sqlalchemy import func
 from app.models.user import User
 from app.models.license import DriverLicense
 from app.models.booking import BookingRequest
 from app.models.payment import Payment
+from app.models.car import CarListing
+from app.models.review import Review
+from app.auth import hash_password, verify_password
+from app.schemas.auth import ChangePasswordIn
 from app.schemas.license import LicenseOut, AdminRejectIn
 from app.schemas.profile import ProfileOut, ProfileUpdateIn, PublicProfileOut
 from app.services.verification import run_verification_checks
@@ -313,12 +318,33 @@ def public_profile(
     user = db.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
+
+    listing_count = (
+        db.query(func.count(CarListing.id))
+        .filter(CarListing.owner_id == user_id, CarListing.status == "AVAILABLE")
+        .scalar()
+    ) or 0
+
+    review_row = (
+        db.query(
+            func.count(Review.id).label("cnt"),
+            func.avg(Review.rating).label("avg"),
+        )
+        .filter(Review.owner_id == user_id)
+        .first()
+    )
+    review_count = int(review_row.cnt or 0)
+    avg_rating = float(review_row.avg) if review_row and review_row.avg is not None else None
+
     return {
         "id": user.id,
         "full_name": user.full_name,
         "avatar_url": user.avatar_url,
         "bio": user.bio,
         "member_since": user.created_at,
+        "listing_count": listing_count,
+        "avg_rating": avg_rating,
+        "review_count": review_count,
     }
 
 
@@ -491,3 +517,19 @@ def delete_my_account(
     db.commit()
     clear_auth_cookies(response)
     return {"message": "Account deleted."}
+
+
+@router.post("/change-password", dependencies=[Depends(csrf_protect)])
+def change_password(
+    payload: ChangePasswordIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_verified_user),
+):
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(payload.new_password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Password too long (max 72 bytes)")
+    user = db.get(User, current_user.id)
+    user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"message": "Password changed successfully."}

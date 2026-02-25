@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.deps import csrf_protect, get_current_verified_user, get_db
+from app.email import notify_review_received
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.review import Review
@@ -95,6 +96,22 @@ def create_car_review(
     db.add(review)
     db.commit()
     db.refresh(review)
+
+    # Notify the owner they received a car review
+    owner = db.get(User, car.owner_id)
+    if owner:
+        try:
+            car_label = f"{car.year} {car.make} {car.model}"
+            notify_review_received(
+                recipient_email=owner.email,
+                recipient_name=owner.full_name,
+                reviewer_name=current_user.full_name,
+                rating=payload.rating,
+                context=f"your car ({car_label})",
+            )
+        except Exception:
+            pass
+
     return review
 
 
@@ -141,4 +158,19 @@ def create_renter_review(
     db.add(review)
     db.commit()
     db.refresh(review)
+
+    # Notify the renter they received a review
+    renter = db.get(User, booking.renter_id)
+    if renter:
+        try:
+            notify_review_received(
+                recipient_email=renter.email,
+                recipient_name=renter.full_name,
+                reviewer_name=current_user.full_name,
+                rating=payload.rating,
+                context="your renter profile",
+            )
+        except Exception:
+            pass
+
     return review

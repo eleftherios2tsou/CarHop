@@ -104,6 +104,11 @@ export default function ProfilePage({
   const [busyDelete, setBusyDelete] = useState(false);
   const [busyExport, setBusyExport] = useState(false);
 
+  // Change password state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [busyChangePassword, setBusyChangePassword] = useState(false);
+
   // Avatar state
   const avatarInputRef                        = useRef(null);
   const [avatarFile, setAvatarFile]           = useState(null);
@@ -256,6 +261,25 @@ export default function ProfilePage({
       notify(`Export error: ${err.message}`, "bad");
     } finally {
       setBusyExport(false);
+    }
+  }
+
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    setBusyChangePassword(true);
+    try {
+      await apiFetch("/profile/change-password", {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      notify("Password changed successfully.", "ok");
+      setCurrentPassword("");
+      setNewPassword("");
+    } catch (err) {
+      notify(`Change password error: ${err.message}`, "bad");
+    } finally {
+      setBusyChangePassword(false);
     }
   }
 
@@ -588,6 +612,33 @@ export default function ProfilePage({
       {isAuthed && (
         <Card title="Account">
           <div className="form">
+            <div className="sectionTitle">Change Password</div>
+            <form onSubmit={handleChangePassword} className="form" style={{ marginBottom: 0 }}>
+              <Field
+                label="Current password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="current password"
+              />
+              <Field
+                label="New password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="new password"
+              />
+              <Button
+                type="submit"
+                loading={busyChangePassword}
+                disabled={busyChangePassword || !currentPassword || !newPassword}
+              >
+                Update Password
+              </Button>
+            </form>
+
+            <div className="divider" style={{ margin: "16px 0" }} />
+
             <div className="sectionTitle">Data &amp; Privacy</div>
             <div className="tiny muted" style={{ marginBottom: 4 }}>
               Download a copy of all personal data we hold for your account.

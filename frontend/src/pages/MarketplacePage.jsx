@@ -3,6 +3,7 @@ import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import StateNotice from "../components/ui/StateNotice";
 import SafetyInfoModal from "../components/SafetyInfoModal";
+import OwnerProfileModal from "../components/OwnerProfileModal";
 import { apiFetch } from "../lib/api";
 
 function isValidDateRange(s, e) {
@@ -71,6 +72,7 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
   const [busyDelete, setBusyDelete] = useState(null);
   const [safetyOpen, setSafetyOpen] = useState(false);
   const [pendingCarId, setPendingCarId] = useState(null);
+  const [ownerProfileId, setOwnerProfileId] = useState(null);
 
   // AI search state
   const [aiQuery, setAiQuery] = useState("");
@@ -576,18 +578,36 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
                       </div>
                     </div>
 
+                    {c.car_avg_rating != null ? (
+                      <div className="tileRating">
+                        <span style={{ color: "var(--warn-text, #b45309)", fontWeight: 700 }}>
+                          {"★".repeat(Math.round(c.car_avg_rating))}{"☆".repeat(5 - Math.round(c.car_avg_rating))}
+                        </span>
+                        <span className="tiny muted">
+                          {c.car_avg_rating.toFixed(1)} ({c.car_review_count} review{c.car_review_count !== 1 ? "s" : ""})
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="tiny muted" style={{ marginBottom: 6 }}>No reviews yet</div>
+                    )}
+
                     {c.owner ? (
                       <div className="tileOwner">
                         <span>By</span>
-                        <span style={{ fontWeight: 700, color: "var(--text)" }}>{c.owner.full_name}</span>
+                        <button
+                          className="linkBtn"
+                          style={{ fontWeight: 700 }}
+                          onClick={() => setOwnerProfileId(c.owner.id)}
+                        >
+                          {c.owner.full_name}
+                        </button>
                         {c.owner.member_since ? (
                           <span>- since {new Date(c.owner.member_since).getFullYear()}</span>
                         ) : null}
                         <span>- {c.owner.listing_count} listing{c.owner.listing_count !== 1 ? "s" : ""}</span>
-                        <span>- {c.owner.avg_rating ? c.owner.avg_rating.toFixed(1) : "No"} rating</span>
-                        <span>
-                          ({c.owner.review_count || 0} review{c.owner.review_count === 1 ? "" : "s"})
-                        </span>
+                        {c.owner.avg_rating ? (
+                          <span>- ★{c.owner.avg_rating.toFixed(1)} owner</span>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -655,6 +675,10 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
         onClose={() => setSafetyOpen(false)}
         onConfirm={() => requestBooking(pendingCarId)}
         busy={busyBooking === pendingCarId}
+      />
+      <OwnerProfileModal
+        ownerId={ownerProfileId}
+        onClose={() => setOwnerProfileId(null)}
       />
     </div>
   );

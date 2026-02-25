@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import { Field } from "../components/ui/Field";
@@ -22,6 +22,14 @@ function drTone(status) {
 }
 
 export default function AdminPage({ notify, onAuthError }) {
+  // ── Users section state ──
+  const [userSearch, setUserSearch] = useState("");
+  const [userPage, setUserPage] = useState(1);
+  const [userList, setUserList] = useState(null); // null = not loaded yet
+  const [userPagination, setUserPagination] = useState({ total: 0, pages: 1 });
+  const [busyUsers, setBusyUsers] = useState(false);
+  const [busyToggle, setBusyToggle] = useState(null); // user id being toggled
+
   const [userId, setUserId] = useState("1");
   const [disputes, setDisputes] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -85,6 +93,35 @@ export default function AdminPage({ notify, onAuthError }) {
       notify(`Load damage reports error: ${err.message}`, "bad");
     } finally {
       setBusyLoadDr(false);
+    }
+  }
+
+  const loadUsers = useCallback(async (page = userPage, search = userSearch) => {
+    setBusyUsers(true);
+    try {
+      const params = new URLSearchParams({ page, page_size: 20 });
+      if (search) params.set("search", search);
+      const data = await apiFetch(`/admin/users?${params}`, { onAuthError });
+      setUserList(data.items);
+      setUserPagination({ total: data.total, pages: data.pages });
+    } catch (err) {
+      notify(`Load users error: ${err.message}`, "bad");
+    } finally {
+      setBusyUsers(false);
+    }
+  }, [userPage, userSearch, onAuthError, notify]);
+
+  async function toggleUserActive(user) {
+    setBusyToggle(user.id);
+    try {
+      const action = user.is_active ? "deactivate" : "activate";
+      await apiFetch(`/admin/users/${user.id}/${action}`, { method: "POST", onAuthError });
+      notify(`User #${user.id} ${action}d`, "ok");
+      loadUsers(userPage, userSearch);
+    } catch (err) {
+      notify(`Toggle error: ${err.message}`, "bad");
+    } finally {
+      setBusyToggle(null);
     }
   }
 
@@ -214,6 +251,97 @@ export default function AdminPage({ notify, onAuthError }) {
               </div>
             ))}
           </div>
+        )}
+        <div className="divider" />
+
+        <div className="sectionTitle">User Management</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <input
+            className="input"
+            style={{ flex: 1 }}
+            placeholder="Search by email or name…"
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                setUserPage(1);
+                loadUsers(1, userSearch);
+              }
+            }}
+          />
+          <Button
+            variant="secondary"
+            onClick={() => { setUserPage(1); loadUsers(1, userSearch); }}
+            loading={busyUsers}
+          >
+            Search
+          </Button>
+        </div>
+
+        {userList === null ? (
+          <p className="tiny muted">Use the search box above or click Search to load users.</p>
+        ) : userList.length === 0 ? (
+          <p className="tiny muted" style={{ marginTop: 8 }}>No users found.</p>
+        ) : (
+          <>
+            <p className="tiny muted" style={{ marginBottom: 6 }}>
+              {userPagination.total} user{userPagination.total !== 1 ? "s" : ""} — page {userPage} of {userPagination.pages}
+            </p>
+            <div className="stack">
+              {userList.map((u) => (
+                <div key={u.id} className="rowCard">
+                  <div className="rowCardMain">
+                    <div className="rowCardTitle">
+                      #{u.id} {u.full_name}{" "}
+                      <Badge tone={u.role === "ADMIN" ? "warn" : "neutral"}>{u.role}</Badge>{" "}
+                      <Badge tone={u.is_active ? "ok" : "bad"}>{u.is_active ? "Active" : "Inactive"}</Badge>
+                    </div>
+                    <div className="rowCardSub">{u.email}</div>
+                    <div className="rowCardSub tiny muted">
+                      Joined {new Date(u.created_at).toLocaleDateString()}{" "}
+                      · Email {u.email_verified ? "verified" : "unverified"}{" "}
+                      · Licence {u.license_verified ? "verified" : "not verified"}
+                    </div>
+                  </div>
+                  <div className="rowCardActions">
+                    <Button
+                      variant={u.is_active ? "danger" : "secondary"}
+                      loading={busyToggle === u.id}
+                      onClick={() => toggleUserActive(u)}
+                    >
+                      {u.is_active ? "Deactivate" : "Activate"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {userPagination.pages > 1 && (
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <Button
+                  variant="secondary"
+                  disabled={userPage <= 1 || busyUsers}
+                  onClick={() => {
+                    const p = userPage - 1;
+                    setUserPage(p);
+                    loadUsers(p, userSearch);
+                  }}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={userPage >= userPagination.pages || busyUsers}
+                  onClick={() => {
+                    const p = userPage + 1;
+                    setUserPage(p);
+                    loadUsers(p, userSearch);
+                  }}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
       </Card>

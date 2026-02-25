@@ -99,6 +99,8 @@ class CarOut(BaseModel):
     owner: OwnerOut | None = None
     cancellation_policy: str = "FLEXIBLE"
     instant_book_enabled: bool = False
+    car_avg_rating: float | None = None
+    car_review_count: int = 0
 
     class Config:
         from_attributes = True

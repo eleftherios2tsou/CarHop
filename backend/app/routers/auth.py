@@ -11,7 +11,7 @@ from app.deps import get_db, csrf_protect, get_current_user
 from app.models.user import User
 from app.models.email_verification import EmailVerificationToken
 from app.models.refresh_token import RefreshToken
-from app.schemas.auth import RegisterIn, LoginIn
+from app.schemas.auth import RegisterIn, LoginIn, ForgotPasswordIn, ResetPasswordIn, EmailResendIn
 from app.auth import hash_password, verify_password
 from app.jwt import create_access_token
 from app.rate_limit import check_rate_limit
@@ -24,6 +24,8 @@ from app.security import (
     REFRESH_COOKIE,
 )
 from app.services.email import send_verification_email
+from app.email import notify_password_reset
+from app.models.password_reset_token import PasswordResetToken
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -74,7 +76,11 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
     db.commit()
     db.refresh(user)
 
-    token = EmailVerificationToken(user_id=user.id, token=str(uuid4()))
+    token = EmailVerificationToken(
+        user_id=user.id,
+        token=str(uuid4()),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+    )
     db.add(token)
     db.commit()
 
@@ -90,6 +96,11 @@ def verify_email(token: str, request: Request, db: Session = Depends(get_db)):
     record = db.query(EmailVerificationToken).filter_by(token=token).first()
     if not record:
         raise HTTPException(status_code=400, detail="Invalid token")
+
+    if record.expires_at and record.expires_at < datetime.now(timezone.utc):
+        db.delete(record)
+        db.commit()
+        raise HTTPException(status_code=400, detail="Verification link has expired. Please request a new one.")
 
     user = db.get(User, record.user_id)
     if not user:
@@ -207,6 +218,63 @@ def refresh(request: Request, db: Session = Depends(get_db)):
         refresh_max_age_seconds=REFRESH_MAX_AGE,
     )
     return response
+
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(scope="auth.forgot_password", identifier=_client_ip(request), limit=5, window_seconds=600)
+    user = db.query(User).filter_by(email=payload.email).first()
+    if user and user.email_verified:
+        # Delete any existing reset token for this user first
+        db.query(PasswordResetToken).filter_by(user_id=user.id).delete()
+        token = new_csrf_token()  # UUID4 hex — same helper, different purpose
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=expires))
+        db.commit()
+        reset_url = f"{settings.frontend_base_url}/?reset={token}"
+        notify_password_reset(user.email, reset_url)
+    # Always 200 — prevents email enumeration
+    return {"message": "If an account with that email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    rec = db.query(PasswordResetToken).filter_by(token=payload.token).first()
+    if not rec:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    if rec.expires_at < datetime.now(timezone.utc):
+        db.delete(rec)
+        db.commit()
+        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+    if len(payload.new_password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Password too long (max 72 bytes)")
+    user = db.get(User, rec.user_id)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid reset token")
+    user.password_hash = hash_password(payload.new_password)
+    db.delete(rec)
+    db.commit()
+    return {"message": "Password updated. You can now log in."}
+
+
+@router.post("/resend-verification")
+def resend_verification(payload: EmailResendIn, request: Request, db: Session = Depends(get_db)):
+    check_rate_limit(scope="auth.resend_verification", identifier=_client_ip(request), limit=3, window_seconds=600)
+    user = db.query(User).filter_by(email=payload.email).first()
+    if not user:
+        return {"message": "If that email is registered and unverified, a link has been sent."}
+    if user.email_verified:
+        raise HTTPException(status_code=400, detail="Email is already verified.")
+    db.query(EmailVerificationToken).filter_by(user_id=user.id).delete()
+    new_token = str(uuid4())
+    db.add(EmailVerificationToken(
+        user_id=user.id,
+        token=new_token,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+    ))
+    db.commit()
+    send_verification_email(user.email, new_token, settings)
+    return {"message": "Verification email sent."}
 
 
 @router.post("/logout", dependencies=[Depends(csrf_protect)])

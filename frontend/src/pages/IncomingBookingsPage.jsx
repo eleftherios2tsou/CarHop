@@ -61,7 +61,23 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
   const [ownerReviews, setOwnerReviews] = useState([]);
   const [renterReviewDrafts, setRenterReviewDrafts] = useState({});
   const [busyRenterReview, setBusyRenterReview] = useState(null);
+  const [renterRatings, setRenterRatings] = useState({}); // renter_id -> { avg, count }
   const pollRef = useRef(null);
+
+  // ── Unread message tracking ──────────────────────────────────────────────
+  function getSeenId(bookingId) {
+    return Number(localStorage.getItem(`ch_msg_seen_${bookingId}`) ?? 0);
+  }
+  function markSeen(bookingId, messages) {
+    const maxId = Math.max(0, ...messages.map((m) => m.id));
+    if (maxId > 0) localStorage.setItem(`ch_msg_seen_${bookingId}`, String(maxId));
+  }
+  function hasUnread(bookingId) {
+    const msgs = messagesByBooking[bookingId];
+    if (!msgs || msgs.length === 0) return false;
+    const latestId = Math.max(...msgs.map((m) => m.id));
+    return latestId > getSeenId(bookingId);
+  }
 
   async function fetchIncoming(targetPage = page) {
     setBusy(true);
@@ -77,6 +93,25 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       );
       const reviews = await apiFetch("/reviews/mine", { onAuthError }).catch(() => []);
       setOwnerReviews(Array.isArray(reviews) ? reviews : []);
+
+      // Batch-fetch renter ratings (deduplicated)
+      const renterIds = [...new Set(list.map((b) => b.renter_id))];
+      const ratingEntries = await Promise.all(
+        renterIds.map(async (rid) => {
+          try {
+            const rreviews = await apiFetch(`/reviews/user/${rid}`, { onAuthError });
+            const renterOnly = (Array.isArray(rreviews) ? rreviews : []).filter(
+              (r) => r.review_type === "RENTER_REVIEW"
+            );
+            if (renterOnly.length === 0) return [rid, null];
+            const avg = renterOnly.reduce((sum, r) => sum + r.rating, 0) / renterOnly.length;
+            return [rid, { avg: Math.round(avg * 10) / 10, count: renterOnly.length }];
+          } catch {
+            return [rid, null];
+          }
+        })
+      );
+      setRenterRatings(Object.fromEntries(ratingEntries));
     } catch {
       setIncoming([]);
     } finally {
@@ -95,10 +130,9 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
     pollRef.current = setInterval(async () => {
       try {
         const data = await apiFetch(`/messages/booking/${openThreadId}`, { onAuthError });
-        setMessagesByBooking((prev) => ({
-          ...prev,
-          [openThreadId]: Array.isArray(data) ? data : [],
-        }));
+        const msgs = Array.isArray(data) ? data : [];
+        setMessagesByBooking((prev) => ({ ...prev, [openThreadId]: msgs }));
+        markSeen(openThreadId, msgs); // thread is open, so mark as read
       } catch {
         // ignore polling errors silently
       }
@@ -253,14 +287,13 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
     }
   }
 
-  async function loadThread(bookingId) {
+  async function loadThread(bookingId, markAsRead = false) {
     setBusyThreadLoad(bookingId);
     try {
       const data = await apiFetch(`/messages/booking/${bookingId}`, { onAuthError });
-      setMessagesByBooking((prev) => ({
-        ...prev,
-        [bookingId]: Array.isArray(data) ? data : [],
-      }));
+      const msgs = Array.isArray(data) ? data : [];
+      setMessagesByBooking((prev) => ({ ...prev, [bookingId]: msgs }));
+      if (markAsRead) markSeen(bookingId, msgs);
     } catch (err) {
       notify(`Message load error: ${err.message}`, "bad");
     } finally {
@@ -274,7 +307,7 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       return;
     }
     setOpenThreadId(bookingId);
-    await loadThread(bookingId);
+    await loadThread(bookingId, true); // mark as read on open
   }
 
   function setMessageDraft(bookingId, content) {
@@ -341,7 +374,20 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                   <div className="rowCardMain">
                     <div className="rowCardTitle">
                       Booking #{b.id}{" "}
-                      <span className="muted">- car #{b.car_id} - renter #{b.renter_id}</span>
+                      <span className="muted">- car #{b.car_id}</span>
+                      {" "}
+                      <span className="muted">
+                        - renter #{b.renter_id}
+                        {renterRatings[b.renter_id] ? (
+                          <span style={{ marginLeft: 6 }}>
+                            <Badge tone="ok">
+                              ★{renterRatings[b.renter_id].avg.toFixed(1)} ({renterRatings[b.renter_id].count})
+                            </Badge>
+                          </span>
+                        ) : renterRatings[b.renter_id] === null ? (
+                          <span className="tiny muted" style={{ marginLeft: 6 }}>no reviews</span>
+                        ) : null}
+                      </span>
                     </div>
                     <div className="rowCardSub">
                       Dates: <span className="mono">{b.start_date}</span> to <span className="mono">{b.end_date}</span>
@@ -399,7 +445,29 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                       onClick={() => toggleThread(b.id)}
                       loading={busyThreadLoad === b.id}
                     >
-                      {threadOpen ? "Hide Messages" : "Messages"}
+                      {threadOpen ? "Hide Messages" : (
+                        <>
+                          Messages
+                          {hasUnread(b.id) && (
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginLeft: 6,
+                              minWidth: 16,
+                              height: 16,
+                              borderRadius: 8,
+                              background: "var(--brand, #2563eb)",
+                              color: "#fff",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "0 4px",
+                            }}>
+                              !
+                            </span>
+                          )}
+                        </>
+                      )}
                     </Button>
 
                     {!dispute ? (

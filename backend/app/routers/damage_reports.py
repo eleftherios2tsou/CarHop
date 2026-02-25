@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.deps import csrf_protect, get_current_verified_user, get_db
+from app.email import notify_damage_report_filed
 from app.models.booking import BookingRequest
 from app.models.car import CarListing
 from app.models.damage_report import DamageReport
@@ -87,6 +88,22 @@ async def file_damage_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+
+    # Notify the renter
+    renter = db.get(User, booking.renter_id)
+    if renter:
+        try:
+            car_label = f"{car.year} {car.make} {car.model}"
+            notify_damage_report_filed(
+                renter_email=renter.email,
+                renter_name=renter.full_name,
+                owner_name=current_user.full_name,
+                car=car_label,
+                booking_id=booking_id,
+            )
+        except Exception:
+            pass  # Never block the response for email failures
+
     return report
 
 
