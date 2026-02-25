@@ -6,6 +6,19 @@ import StateNotice from "../components/ui/StateNotice";
 import DisputeCreateModal from "../components/disputes/DisputeCreateModal";
 import { apiFetch } from "../lib/api";
 
+function cancelRefundLabel(policy, startDate) {
+  const hours = (new Date(startDate) - Date.now()) / 3600000;
+  const pct =
+    policy === "FLEXIBLE"  ? (hours >= 24  ? 100 : 0) :
+    policy === "MODERATE"  ? (hours >= 120 ? 100 : hours >= 24 ? 50 : 0) :
+    policy === "STRICT"    ? (hours >= 168 ? 100 : hours >= 48 ? 50 : 0) : 100;
+  return pct === 100
+    ? `Per the ${policy} policy, you will receive a full refund.`
+    : pct === 50
+    ? `Per the ${policy} policy, you will receive a 50% refund.`
+    : `Per the ${policy} policy, no refund applies at this stage.`;
+}
+
 function bookingStatusTone(status) {
   if (status === "PENDING") return "warn";
   if (status === "APPROVED") return "ok";
@@ -26,6 +39,13 @@ function paymentTone(status) {
   if (status === "RELEASED_TO_OWNER") return "ok";
   if (status === "PAYMENT_FAILED") return "bad";
   if (status === "REFUNDED") return "bad";
+  return "warn";
+}
+
+function depositTone(status) {
+  if (status === "HELD") return "warn";
+  if (status === "RELEASED") return "ok";
+  if (status === "FORFEITED") return "bad";
   return "warn";
 }
 
@@ -132,7 +152,7 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
     const draft = reviewDrafts[bookingId] || { rating: 5, comment: "" };
     setBusyReview(bookingId);
     try {
-      await apiFetch(`/reviews/${bookingId}`, {
+      await apiFetch(`/reviews/${bookingId}/car`, {
         method: "POST",
         onAuthError,
         body: JSON.stringify({
@@ -306,8 +326,11 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                         </span>
                       ) : null}
                       {payment ? (
-                        <span style={{ marginLeft: 8 }}>
-                          <Badge tone={paymentTone(payment.status)}>Payment: {payment.status}</Badge>
+                        <span style={{ marginLeft: 8, display: "inline-flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                          <Badge tone={paymentTone(payment.status)}>{payment.status}</Badge>
+                          <span className="tiny muted">Rental: £{Number(payment.amount_total).toFixed(2)}</span>
+                          <span className="tiny muted">Deposit: £{(payment.deposit_amount_pence / 100).toFixed(2)}</span>
+                          <Badge tone={depositTone(payment.deposit_status)}>Deposit {payment.deposit_status}</Badge>
                         </span>
                       ) : null}
                     </div>
@@ -316,7 +339,13 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                   <div className="rowCardActions">
                     <Button
                       variant="danger"
-                      onClick={() => cancelBooking(b.id)}
+                      onClick={() => {
+                        if (b.status === "APPROVED") {
+                          const msg = cancelRefundLabel(b.car_cancellation_policy || "FLEXIBLE", b.start_date);
+                          if (!window.confirm(`${msg}\n\nProceed with cancellation?`)) return;
+                        }
+                        cancelBooking(b.id);
+                      }}
                       disabled={!canCancel}
                       loading={busyCancel === b.id}
                     >

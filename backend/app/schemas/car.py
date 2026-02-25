@@ -25,6 +25,7 @@ class CarCreate(BaseModel):
     year: int
     daily_price: int
     availability_units: int = 1
+    cancellation_policy: str = "FLEXIBLE"
 
     city: str | None = None
     postcode: str | None = None
@@ -58,6 +59,7 @@ class CarUpdate(BaseModel):
     features: Optional[dict[str, Any]] = None
 
     status: Optional[str] = None
+    cancellation_policy: Optional[str] = None
 
     class Config:
         extra = "forbid"
@@ -95,6 +97,8 @@ class CarOut(BaseModel):
 
     photo_urls: list[str] = Field(default_factory=list)
     owner: OwnerOut | None = None
+    cancellation_policy: str = "FLEXIBLE"
+    instant_book_enabled: bool = False
 
     class Config:
         from_attributes = True
@@ -110,6 +114,10 @@ class CarPhotosOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class InstantBookToggle(BaseModel):
+    enabled: bool
 
 
 class PaginatedCars(BaseModel):

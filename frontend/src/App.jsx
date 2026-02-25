@@ -13,6 +13,10 @@ import MyListingsPage from "./pages/MyListingsPage";
 import IncomingBookingsPage from "./pages/IncomingBookingsPage";
 import MyBookingsPage from "./pages/MyBookingsPage";
 import AdminPage from "./pages/AdminPage";
+import InformationPage from "./pages/InformationPage";
+import TermsPage from "./pages/TermsPage";
+import PrivacyPage from "./pages/PrivacyPage";
+import CookieConsentBanner from "./components/CookieConsentBanner";
 
 export default function App() {
   const [profile, setProfile] = useState(null);
@@ -47,6 +51,9 @@ export default function App() {
 
   const navItems = useMemo(() => {
     const items = [{ key: "Marketplace", label: "Marketplace" }];
+    items.push({ key: "Information", label: "Information" });
+    items.push({ key: "Terms", label: "Terms of Service" });
+    items.push({ key: "Privacy", label: "Privacy Policy" });
 
     if (!isAuthed) {
       items.push({ key: "Auth", label: "Login / Register" });
@@ -150,6 +157,8 @@ export default function App() {
         onClose={() => setToast({ tone: "info", msg: "" })}
       />
 
+      <CookieConsentBanner onPrivacy={() => setActive("Privacy")} />
+
       <header className="topbar">
         <button
           className="topbarBrand"
@@ -223,6 +232,10 @@ export default function App() {
           />
         )}
 
+        {active === "Information" && <InformationPage />}
+        {active === "Terms" && <TermsPage />}
+        {active === "Privacy" && <PrivacyPage />}
+
         {active === "Auth" && (
           <AuthPage
             isAuthed={isAuthed}
@@ -231,6 +244,7 @@ export default function App() {
               await fetchProfile();
               setActive("Profile");
             }}
+            onNavigate={setActive}
           />
         )}
 
@@ -289,6 +303,14 @@ export default function App() {
           <AdminPage notify={notify} onAuthError={onAuthError} />
         )}
       </main>
+
+      <footer className="appFooter">
+        <span className="tiny muted">© {new Date().getFullYear()} CarHop</span>
+        <div className="row" style={{ gap: 16 }}>
+          <button className="footerLink" onClick={() => setActive("Terms")}>Terms of Service</button>
+          <button className="footerLink" onClick={() => setActive("Privacy")}>Privacy Policy</button>
+        </div>
+      </footer>
     </div>
   );
 }

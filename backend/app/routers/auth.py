@@ -67,6 +67,7 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
         password_hash=hash_password(payload.password),
         full_name=payload.full_name,
         date_of_birth=payload.date_of_birth,
+        terms_accepted_at=datetime.now(timezone.utc) if payload.terms_accepted else None,
     )
 
     db.add(user)

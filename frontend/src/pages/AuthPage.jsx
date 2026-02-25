@@ -5,12 +5,13 @@ import Badge from "../components/ui/Badge";
 import { Field } from "../components/ui/Field";
 import { apiFetch } from "../lib/api";
 
-export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
+export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate }) {
   const [authMode, setAuthMode] = useState("register");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [dob, setDob] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [busyAuth, setBusyAuth] = useState(false);
 
@@ -26,6 +27,7 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
             password,
             full_name: fullName,
             date_of_birth: dob,
+            terms_accepted: termsAccepted,
           }),
         });
         setRegistered(true);
@@ -115,9 +117,28 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess }) {
                   value={dob}
                   onChange={(e) => setDob(e.target.value)}
                 />
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 4 }}>
+                  <input
+                    type="checkbox"
+                    id="terms"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    style={{ marginTop: 3, flexShrink: 0 }}
+                  />
+                  <label htmlFor="terms" className="tiny">
+                    I agree to the{" "}
+                    <button type="button" className="linkBtn" onClick={() => onNavigate?.("Terms")}>
+                      Terms of Service
+                    </button>
+                    {" "}and{" "}
+                    <button type="button" className="linkBtn" onClick={() => onNavigate?.("Privacy")}>
+                      Privacy Policy
+                    </button>
+                  </label>
+                </div>
               </>
             )}
-            <Button type="submit" loading={busyAuth}>
+            <Button type="submit" loading={busyAuth} disabled={busyAuth || (authMode === "register" && !termsAccepted)}>
               {authMode === "register" ? "Create account" : "Login"}
             </Button>
           </form>

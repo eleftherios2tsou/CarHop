@@ -1276,3 +1276,57 @@ body {
 
 
 }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.appFooter {
+  border-top: 1px solid var(--line);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.footerLink {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.footerLink:hover {
+  color: var(--text);
+}
+
+/* ── Cookie Consent Banner ───────────────────────────────────────────────── */
+
+.cookieBanner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 1000;
+}
+
+/* ── Inline link button (used in T&C checkbox label) ─────────────────────── */
+
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+  text-decoration: underline;
+}

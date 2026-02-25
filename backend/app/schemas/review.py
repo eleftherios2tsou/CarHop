@@ -14,6 +14,8 @@ class ReviewOut(BaseModel):
     car_id: int
     reviewer_id: int
     owner_id: int
+    review_type: str = "CAR_REVIEW"
+    target_user_id: int | None = None
     rating: int
     comment: str | None = None
     created_at: datetime

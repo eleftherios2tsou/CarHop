@@ -27,6 +27,7 @@ export default function EditListingModal({
     color: "",
     description: "",
     status: "AVAILABLE",
+    cancellation_policy: "FLEXIBLE",
   });
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadPreviews, setUploadPreviews] = useState([]);
@@ -46,6 +47,7 @@ export default function EditListingModal({
       color: carDetail.color ?? "",
       description: carDetail.description ?? "",
       status: carDetail.status ?? "AVAILABLE",
+      cancellation_policy: carDetail.cancellation_policy ?? "FLEXIBLE",
     });
     setUploadFiles([]);
     setUploadPreviews([]);
@@ -88,6 +90,7 @@ export default function EditListingModal({
       color: form.color || null,
       description: form.description || null,
       status: form.status || null,
+      cancellation_policy: form.cancellation_policy || "FLEXIBLE",
     };
     onSave(patch);
   }
@@ -139,7 +142,16 @@ export default function EditListingModal({
                 { value: "UNAVAILABLE", label: "UNAVAILABLE" },
               ]}
             />
-            <div />
+            <SelectField
+              label="Cancellation Policy"
+              value={form.cancellation_policy}
+              onChange={(e) => setForm((f) => ({ ...f, cancellation_policy: e.target.value }))}
+              options={[
+                { value: "FLEXIBLE", label: "Flexible — full refund up to 24 h before start" },
+                { value: "MODERATE", label: "Moderate — full refund 5+ days, 50% refund 1–5 days" },
+                { value: "STRICT", label: "Strict — full refund 7+ days, 50% refund 2–7 days" },
+              ]}
+            />
           </div>
 
           <div className="sectionTitle">Location</div>

@@ -23,6 +23,11 @@ class PaymentOut(BaseModel):
     paid_at: datetime | None = None
     released_at: datetime | None = None
     refunded_at: datetime | None = None
+    deposit_amount_pence: int = 25000
+    deposit_status: str = "HELD"
+    deposit_released_at: datetime | None = None
+    refund_amount_pence: int | None = None
+    cancellation_policy_applied: str | None = None
 
     class Config:
         from_attributes = True

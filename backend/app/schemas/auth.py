@@ -8,6 +8,7 @@ class RegisterIn(BaseModel):
     password: str
     full_name: str
     date_of_birth: date
+    terms_accepted: bool = False
 
 class LoginIn(BaseModel):
     email: EmailStr

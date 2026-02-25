@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
-import { Field } from "../components/ui/Field";
+import { Field, TextAreaField } from "../components/ui/Field";
 import { apiFetch, apiFetchForm } from "../lib/api";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -101,6 +101,25 @@ export default function ProfilePage({
   const [busyAdmin, setBusyAdmin]             = useState(false);
   const [busyPayoutConnect, setBusyPayoutConnect] = useState(false);
   const [busyPayoutRefresh, setBusyPayoutRefresh] = useState(false);
+  const [busyDelete, setBusyDelete] = useState(false);
+  const [busyExport, setBusyExport] = useState(false);
+
+  // Avatar state
+  const avatarInputRef                        = useRef(null);
+  const [avatarFile, setAvatarFile]           = useState(null);
+  const [avatarPreview, setAvatarPreview]     = useState(null);
+  const [busyAvatar, setBusyAvatar]           = useState(false);
+
+  // Bio state — initialise from profile when it loads
+  const [bio, setBio]                         = useState(profile?.bio ?? "");
+  const [busyBio, setBusyBio]                 = useState(false);
+
+  // Keep bio textarea in sync if profile is refreshed externally
+  useEffect(() => {
+    setBio(profile?.bio ?? "");
+    setAvatarPreview(null); // reset local preview on profile refresh
+    setAvatarFile(null);
+  }, [profile?.bio, profile?.avatar_url]);
 
   // Poll every 3 s while the pipeline is processing
   useEffect(() => {
@@ -188,6 +207,74 @@ export default function ProfilePage({
     }
   }
 
+  async function saveAvatar() {
+    if (!avatarFile) return;
+    setBusyAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append("avatar", avatarFile);
+      await apiFetchForm("/profile/avatar", fd, { onAuthError });
+      notify("Avatar updated", "ok");
+      setAvatarFile(null);
+      await onProfileUpdated();
+    } catch (err) {
+      notify(`Avatar error: ${err.message}`, "bad");
+    } finally {
+      setBusyAvatar(false);
+    }
+  }
+
+  async function saveBio() {
+    setBusyBio(true);
+    try {
+      await apiFetch("/profile/me", {
+        method: "PATCH",
+        onAuthError,
+        body: JSON.stringify({ bio: bio || null }),
+      });
+      notify("Bio saved", "ok");
+      await onProfileUpdated();
+    } catch (err) {
+      notify(`Bio error: ${err.message}`, "bad");
+    } finally {
+      setBusyBio(false);
+    }
+  }
+
+  async function exportMyData() {
+    setBusyExport(true);
+    try {
+      const data = await apiFetch("/profile/export", { onAuthError });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "carhop-my-data.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      notify(`Export error: ${err.message}`, "bad");
+    } finally {
+      setBusyExport(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!window.confirm(
+      "This will permanently delete your account and anonymise all personal data.\n\nThis action cannot be undone. Proceed?"
+    )) return;
+    setBusyDelete(true);
+    try {
+      await apiFetch("/profile/me", { method: "DELETE", onAuthError });
+      notify("Account deleted.", "ok");
+      onProfileUpdated?.();
+    } catch (err) {
+      notify(`Error: ${err.message}`, "bad");
+    } finally {
+      setBusyDelete(false);
+    }
+  }
+
   async function startPayoutOnboarding() {
     setBusyPayoutConnect(true);
     try {
@@ -240,63 +327,130 @@ export default function ProfilePage({
         {!isAuthed ? (
           <p className="muted">Login to see your profile.</p>
         ) : (
-          <div className="profileGrid">
-            <div className="kv">
-              <div className="k">User ID</div>
-              <div className="v mono">{profile.id}</div>
-            </div>
-            <div className="kv">
-              <div className="k">Email</div>
-              <div className="v">{profile.email}</div>
-            </div>
-            <div className="kv">
-              <div className="k">Name</div>
-              <div className="v">{profile.full_name}</div>
-            </div>
-            <div className="kv">
-              <div className="k">DoB</div>
-              <div className="v mono">{profile.date_of_birth}</div>
-            </div>
-            {isAdmin && (
-              <div className="kv">
-                <div className="k">Role</div>
-                <div className="v mono">{profile.role || "USER"}</div>
-              </div>
-            )}
-            <div className="kv">
-              <div className="k">Email verified</div>
-              <div className="v">
-                {profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
-              </div>
-            </div>
-            <div className="kv">
-              <div className="k">Licence status</div>
-              <div className="v">
-                {licStatus ? (
-                  <LicenseStatusBadge
-                    status={licStatus}
-                    rejectionReason={profile.license?.rejection_reason}
+          <>
+            {/* ── Avatar ── */}
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 80, height: 80, borderRadius: "50%",
+                  border: "2px solid var(--line)", overflow: "hidden",
+                  background: "var(--surface-alt)", flexShrink: 0,
+                  display: "grid", placeItems: "center",
+                }}
+              >
+                {(avatarPreview || profile.avatar_url) ? (
+                  <img
+                    src={avatarPreview || profile.avatar_url}
+                    alt="avatar"
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 ) : (
-                  <Badge tone="warn">Not submitted</Badge>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: "var(--text-faint)" }}>
+                    {profile.full_name?.[0]?.toUpperCase() ?? "?"}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    setAvatarFile(f);
+                    setAvatarPreview(URL.createObjectURL(f));
+                  }}
+                />
+                <Button variant="secondary" onClick={() => avatarInputRef.current?.click()}>
+                  Change photo
+                </Button>
+                {avatarFile && (
+                  <Button loading={busyAvatar} onClick={saveAvatar}>
+                    Save avatar
+                  </Button>
                 )}
               </div>
             </div>
-            <div className="kv">
-              <div className="k">Profile complete</div>
-              <div className="v">
-                {profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+
+            {/* ── Info grid ── */}
+            <div className="profileGrid">
+              <div className="kv">
+                <div className="k">User ID</div>
+                <div className="v mono">{profile.id}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Email</div>
+                <div className="v">{profile.email}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Name</div>
+                <div className="v">{profile.full_name}</div>
+              </div>
+              <div className="kv">
+                <div className="k">DoB</div>
+                <div className="v mono">{profile.date_of_birth}</div>
+              </div>
+              {isAdmin && (
+                <div className="kv">
+                  <div className="k">Role</div>
+                  <div className="v mono">{profile.role || "USER"}</div>
+                </div>
+              )}
+              <div className="kv">
+                <div className="k">Email verified</div>
+                <div className="v">
+                  {profile.email_verified ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                </div>
+              </div>
+              <div className="kv">
+                <div className="k">Licence status</div>
+                <div className="v">
+                  {licStatus ? (
+                    <LicenseStatusBadge
+                      status={licStatus}
+                      rejectionReason={profile.license?.rejection_reason}
+                    />
+                  ) : (
+                    <Badge tone="warn">Not submitted</Badge>
+                  )}
+                </div>
+              </div>
+              <div className="kv">
+                <div className="k">Profile complete</div>
+                <div className="v">
+                  {profile.profile_complete ? <Badge tone="ok">Yes</Badge> : <Badge tone="warn">No</Badge>}
+                </div>
+              </div>
+              <div className="kv">
+                <div className="k">Payout account</div>
+                <div className="v">
+                  {profile.payout_connected
+                    ? <Badge tone="ok">Connected</Badge>
+                    : <Badge tone="warn">Not connected</Badge>}
+                </div>
               </div>
             </div>
-            <div className="kv">
-              <div className="k">Payout account</div>
-              <div className="v">
-                {profile.payout_connected
-                  ? <Badge tone="ok">Connected</Badge>
-                  : <Badge tone="warn">Not connected</Badge>}
+
+            {/* ── Bio ── */}
+            <div className="divider" style={{ margin: "16px 0" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <TextAreaField
+                label="Bio"
+                value={bio}
+                onChange={(e) => setBio(e.target.value.slice(0, 500))}
+                placeholder="Tell others a little about yourself…"
+                rows={3}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="tiny muted">{bio.length}/500</span>
+                <Button loading={busyBio} onClick={saveBio}>
+                  Save bio
+                </Button>
               </div>
             </div>
-          </div>
+          </>
         )}
       </Card>
 
@@ -429,6 +583,31 @@ export default function ProfilePage({
           ) : null}
         </div>
       </Card>
+
+      {/* ── Account / GDPR ────────────────────────────────────────────── */}
+      {isAuthed && (
+        <Card title="Account">
+          <div className="form">
+            <div className="sectionTitle">Data &amp; Privacy</div>
+            <div className="tiny muted" style={{ marginBottom: 4 }}>
+              Download a copy of all personal data we hold for your account.
+            </div>
+            <Button variant="secondary" onClick={exportMyData} loading={busyExport}>
+              Export My Data
+            </Button>
+
+            <div className="divider" style={{ margin: "16px 0" }} />
+
+            <div className="sectionTitle" style={{ color: "var(--danger)" }}>Danger Zone</div>
+            <div className="tiny muted" style={{ marginBottom: 4 }}>
+              Permanently delete your account and anonymise all personal data. This cannot be undone.
+            </div>
+            <Button variant="danger" onClick={handleDeleteAccount} disabled={busyDelete}>
+              {busyDelete ? "Deleting…" : "Delete My Account"}
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

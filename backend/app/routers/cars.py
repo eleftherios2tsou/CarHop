@@ -11,12 +11,14 @@ from sqlalchemy import and_, exists, func, select
 
 from app.deps import get_db, get_current_user, csrf_protect
 from app.services import storage
+from app.models.availability_block import AvailabilityBlock
 from app.models.car import CarListing
 from app.models.car_photo import CarPhoto
 from app.models.booking import BookingRequest
 from app.models.review import Review
 from app.models.user import User
-from app.schemas.car import CarCreate, CarOut, CarDetailOut, CarPhotosOut, CarUpdate, PaginatedCars
+from app.schemas.availability_block import AvailabilityBlockCreateIn, AvailabilityBlockOut
+from app.schemas.car import CarCreate, CarOut, CarDetailOut, CarPhotosOut, CarUpdate, InstantBookToggle, PaginatedCars
 
 router = APIRouter(prefix="/cars", tags=["cars"])
 
@@ -86,7 +88,14 @@ def list_cars(
                 ),
             )
         )
-        q = q.filter(~overlap_exists)
+        block_overlap = exists(
+            select(1).where(
+                AvailabilityBlock.car_id == CarListing.id,
+                AvailabilityBlock.start_date <= to_date,
+                AvailabilityBlock.end_date >= from_date,
+            )
+        )
+        q = q.filter(~overlap_exists, ~block_overlap)
 
     if city:
         q = q.filter(CarListing.city.ilike(f"%{city}%"))
@@ -341,3 +350,117 @@ def delete_car_photo(
     db.commit()
 
     return {"ok": True, "deleted_photo_id": photo_id}
+
+
+@router.get("/{car_id}/availability", response_model=list[AvailabilityBlockOut])
+def get_car_availability(car_id: int, db: Session = Depends(get_db)):
+    car = db.query(CarListing).filter(CarListing.id == car_id).first()
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+    return (
+        db.query(AvailabilityBlock)
+        .filter(AvailabilityBlock.car_id == car_id)
+        .order_by(AvailabilityBlock.start_date)
+        .all()
+    )
+
+
+@router.post(
+    "/{car_id}/availability/block",
+    response_model=AvailabilityBlockOut,
+    dependencies=[Depends(csrf_protect)],
+)
+def create_availability_block(
+    car_id: int,
+    payload: AvailabilityBlockCreateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = db.query(CarListing).filter(CarListing.id == car_id).first()
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+    if car.owner_id != current_user.id and current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Not allowed to modify this car")
+
+    block = AvailabilityBlock(
+        car_id=car_id,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        reason=payload.reason,
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+@router.delete(
+    "/{car_id}/availability/blocks/{block_id}",
+    dependencies=[Depends(csrf_protect)],
+)
+def delete_availability_block(
+    car_id: int,
+    block_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = db.query(CarListing).filter(CarListing.id == car_id).first()
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+    if car.owner_id != current_user.id and current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Not allowed to modify this car")
+
+    block = (
+        db.query(AvailabilityBlock)
+        .filter(AvailabilityBlock.id == block_id, AvailabilityBlock.car_id == car_id)
+        .first()
+    )
+    if not block:
+        raise HTTPException(status_code=404, detail="Availability block not found")
+
+    db.delete(block)
+    db.commit()
+    return {"ok": True, "deleted_block_id": block_id}
+
+
+def _owner_qualifies_instant_book(db: Session, owner_id: int) -> bool:
+    """Return True if owner has ≥5 CAR_REVIEWs averaging ≥4.5."""
+    row = db.query(func.count(Review.id), func.avg(Review.rating)).filter(
+        Review.owner_id == owner_id,
+        Review.review_type == "CAR_REVIEW",
+    ).first()
+    return int(row[0] or 0) >= 5 and float(row[1] or 0.0) >= 4.5
+
+
+@router.patch(
+    "/{car_id}/instant-book",
+    response_model=CarOut,
+    dependencies=[Depends(csrf_protect)],
+)
+def toggle_instant_book(
+    car_id: int,
+    payload: InstantBookToggle,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    car = (
+        db.query(CarListing)
+        .options(selectinload(CarListing.photos))
+        .filter(CarListing.id == car_id)
+        .first()
+    )
+    if not car:
+        raise HTTPException(status_code=404, detail="Car not found")
+    if car.owner_id != current_user.id and current_user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    if payload.enabled and not _owner_qualifies_instant_book(db, current_user.id):
+        raise HTTPException(
+            status_code=400,
+            detail="Instant Book requires 5+ reviews averaging ≥ 4.5★",
+        )
+
+    car.instant_book_enabled = payload.enabled
+    db.commit()
+    db.refresh(car)
+    return car

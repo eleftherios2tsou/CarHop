@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import StateNotice from "../components/ui/StateNotice";
+import SafetyInfoModal from "../components/SafetyInfoModal";
 import { apiFetch } from "../lib/api";
 
 function isValidDateRange(s, e) {
@@ -68,6 +69,8 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
   const [busyCars, setBusyCars] = useState(false);
   const [busyBooking, setBusyBooking] = useState(null);
   const [busyDelete, setBusyDelete] = useState(null);
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [pendingCarId, setPendingCarId] = useState(null);
 
   // AI search state
   const [aiQuery, setAiQuery] = useState("");
@@ -187,6 +190,11 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
   }
 
   // ── Booking / delete ─────────────────────────────────────────────────────
+  function openSafety(carId) {
+    setPendingCarId(carId);
+    setSafetyOpen(true);
+  }
+
   async function requestBooking(carId) {
     setBusyBooking(carId);
     try {
@@ -197,9 +205,11 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
         body: JSON.stringify({ start_date: startDate, end_date: endDate }),
       });
       notify(`Booking requested (booking_id: ${data.id})`, "ok");
+      setSafetyOpen(false);
       onBookingMade();
     } catch (err) {
       notify(`Booking error: ${err.message}`, "bad");
+      setSafetyOpen(false);
     } finally {
       setBusyBooking(null);
     }
@@ -520,7 +530,10 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
                       <div className="tileTitle">
                         {c.make} {c.model}
                       </div>
-                      <Badge tone={c.status === "AVAILABLE" ? "ok" : "warn"}>{c.status}</Badge>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                        <Badge tone={c.status === "AVAILABLE" ? "ok" : "warn"}>{c.status}</Badge>
+                        {c.instant_book_enabled ? <Badge tone="ok">⚡ Instant</Badge> : null}
+                      </div>
                     </div>
 
                     <div className="tileMedia">
@@ -535,6 +548,13 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
                       <div className="mono">{c.year}</div>
                       <div className="mono">{c.daily_price} GBP/day</div>
                       <div className="mono">{c.city || "-"}</div>
+                      {c.cancellation_policy ? (
+                        <div className="tiny muted">
+                          {c.cancellation_policy === "FLEXIBLE" ? "Flexible cancellation" :
+                           c.cancellation_policy === "MODERATE" ? "Moderate cancellation" :
+                           "Strict cancellation"}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="tileDetails">
@@ -573,7 +593,7 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
 
                     <div className="tileActions">
                       <Button
-                        onClick={() => requestBooking(c.id)}
+                        onClick={() => openSafety(c.id)}
                         disabled={!canRequest}
                         loading={busyBooking === c.id}
                       >
@@ -629,6 +649,13 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
           </>
         )}
       </div>
+
+      <SafetyInfoModal
+        open={safetyOpen}
+        onClose={() => setSafetyOpen(false)}
+        onConfirm={() => requestBooking(pendingCarId)}
+        busy={busyBooking === pendingCarId}
+      />
     </div>
   );
 }

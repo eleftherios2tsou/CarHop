@@ -16,6 +16,7 @@ class BookingOut(BaseModel):
     start_date: date
     end_date: date
     status: str
+    car_cancellation_policy: str = "FLEXIBLE"
 
     class Config:
         from_attributes = True

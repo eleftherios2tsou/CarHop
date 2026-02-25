@@ -45,6 +45,19 @@ def _has_open_dispute(db: Session, booking_id: int) -> bool:
     )
 
 
+def _has_open_damage_report(db: Session, booking_id: int) -> bool:
+    from app.models.damage_report import DamageReport
+    return (
+        db.query(DamageReport)
+        .filter(
+            DamageReport.booking_id == booking_id,
+            DamageReport.status.in_(("OPEN", "UNDER_REVIEW")),
+        )
+        .first()
+        is not None
+    )
+
+
 def _booking_days(start: date, end: date) -> int:
     days = (end - start).days + 1
     if days <= 0:
@@ -184,6 +197,9 @@ def pay_booking_to_escrow(
         payment.paid_at = now
         payment.stripe_payment_intent_id = None
         payment.stripe_charge_id = None
+        payment.deposit_amount_pence = 25000
+        payment.deposit_status = "HELD"
+        payment.deposit_released_at = None
         if not existing:
             db.add(payment)
         db.commit()
@@ -210,6 +226,9 @@ def pay_booking_to_escrow(
     payment.provider = STRIPE_PROVIDER
     payment.paid_at = None
     payment.stripe_charge_id = None
+    payment.deposit_amount_pence = 25000
+    payment.deposit_status = "HELD"
+    payment.deposit_released_at = None
     if not existing:
         db.add(payment)
     db.commit()
@@ -237,7 +256,18 @@ def pay_booking_to_escrow(
                         },
                     },
                     "quantity": 1,
-                }
+                },
+                {
+                    "price_data": {
+                        "currency": settings.payments_currency.lower(),
+                        "unit_amount": 25000,  # £250 deposit in pence
+                        "product_data": {
+                            "name": "Refundable security deposit",
+                            "description": "Returned automatically after the trip if no damage is reported.",
+                        },
+                    },
+                    "quantity": 1,
+                },
             ],
             metadata={
                 "payment_id": str(payment.id),
@@ -438,6 +468,8 @@ def release_escrow_to_owner(
         raise HTTPException(status_code=400, detail="Escrow can be released only after booking end date")
     if _has_open_dispute(db, booking_id):
         raise HTTPException(status_code=400, detail="Cannot release while dispute is open")
+    if _has_open_damage_report(db, booking_id):
+        raise HTTPException(status_code=400, detail="Cannot release while a damage report is under review")
 
     owner = db.get(User, owner_id)
     if not owner:
@@ -485,6 +517,8 @@ def release_escrow_to_owner(
 
     payment.status = "RELEASED_TO_OWNER"
     payment.released_at = datetime.now(timezone.utc)
+    payment.deposit_status = "RELEASED"
+    payment.deposit_released_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(payment)
 

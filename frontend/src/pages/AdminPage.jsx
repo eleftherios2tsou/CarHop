@@ -4,12 +4,20 @@ import Button from "../components/ui/Button";
 import { Field } from "../components/ui/Field";
 import Badge from "../components/ui/Badge";
 import DisputeResolveModal from "../components/disputes/DisputeResolveModal";
+import DamageReportResolveModal from "../components/DamageReportResolveModal";
 import { apiFetch } from "../lib/api";
 
 function disputeTone(status) {
   if (status === "OPEN") return "warn";
   if (status === "RESOLVED") return "ok";
   if (status === "REJECTED") return "bad";
+  return "warn";
+}
+
+function drTone(status) {
+  if (status === "OPEN" || status === "UNDER_REVIEW") return "warn";
+  if (status === "RESOLVED") return "ok";
+  if (status === "DISMISSED") return "neutral";
   return "warn";
 }
 
@@ -20,6 +28,10 @@ export default function AdminPage({ notify, onAuthError }) {
   const [busyLoad, setBusyLoad] = useState(false);
   const [busyResolve, setBusyResolve] = useState(null);
   const [resolveModal, setResolveModal] = useState(null);
+  const [damageReports, setDamageReports] = useState([]);
+  const [busyLoadDr, setBusyLoadDr] = useState(false);
+  const [busyResolveDr, setBusyResolveDr] = useState(null);
+  const [drResolveModal, setDrResolveModal] = useState(null);
 
   async function adminVerifyLicense() {
     setBusy(true);
@@ -61,6 +73,36 @@ export default function AdminPage({ notify, onAuthError }) {
       notify(`Resolve dispute error: ${err.message}`, "bad");
     } finally {
       setBusyResolve(null);
+    }
+  }
+
+  async function loadDamageReports() {
+    setBusyLoadDr(true);
+    try {
+      const data = await apiFetch("/damage-reports/", { onAuthError });
+      setDamageReports(Array.isArray(data) ? data : []);
+    } catch (err) {
+      notify(`Load damage reports error: ${err.message}`, "bad");
+    } finally {
+      setBusyLoadDr(false);
+    }
+  }
+
+  async function resolveDamageReport({ reportId, status, deposit_decision, admin_note }) {
+    setBusyResolveDr(reportId);
+    try {
+      await apiFetch(`/damage-reports/${reportId}/resolve`, {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ status, deposit_decision, admin_note }),
+      });
+      notify(`Damage report #${reportId} ${status.toLowerCase()}`, "ok");
+      await loadDamageReports();
+      setDrResolveModal(null);
+    } catch (err) {
+      notify(`Resolve damage report error: ${err.message}`, "bad");
+    } finally {
+      setBusyResolveDr(null);
     }
   }
 
@@ -125,6 +167,54 @@ export default function AdminPage({ notify, onAuthError }) {
             ))}
           </div>
         )}
+        <div className="divider" />
+
+        <div className="sectionTitle">Damage Reports</div>
+        <Button variant="secondary" onClick={loadDamageReports} loading={busyLoadDr}>
+          Refresh Damage Reports
+        </Button>
+
+        {damageReports.length === 0 ? (
+          <p className="tiny muted" style={{ marginTop: 8 }}>No damage reports loaded.</p>
+        ) : (
+          <div className="stack" style={{ marginTop: 10 }}>
+            {damageReports.map((dr) => (
+              <div key={dr.id} className="rowCard">
+                <div className="rowCardMain">
+                  <div className="rowCardTitle">
+                    Damage Report #{dr.id}{" "}
+                    <span className="muted">- booking #{dr.booking_id}</span>
+                  </div>
+                  <div className="rowCardSub">
+                    Status: <Badge tone={drTone(dr.status)}>{dr.status}</Badge>
+                    <span style={{ marginLeft: 8 }} className="tiny muted">
+                      Reporter: user #{dr.reporter_id}
+                    </span>
+                  </div>
+                  <div className="rowCardSub">Description: {dr.description}</div>
+                  {dr.estimated_cost_pence != null ? (
+                    <div className="rowCardSub">
+                      Estimated cost: £{(dr.estimated_cost_pence / 100).toFixed(2)}
+                    </div>
+                  ) : null}
+                  {dr.admin_note ? (
+                    <div className="rowCardSub">Admin note: {dr.admin_note}</div>
+                  ) : null}
+                </div>
+                {dr.status === "OPEN" || dr.status === "UNDER_REVIEW" ? (
+                  <div className="rowCardActions">
+                    <Button
+                      onClick={() => setDrResolveModal({ id: dr.id, bookingId: dr.booking_id })}
+                      loading={busyResolveDr === dr.id}
+                    >
+                      Resolve
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       </Card>
       <DisputeResolveModal
@@ -134,6 +224,14 @@ export default function AdminPage({ notify, onAuthError }) {
         busy={busyResolve === resolveModal?.id}
         onClose={() => setResolveModal(null)}
         onSubmit={resolveDispute}
+      />
+      <DamageReportResolveModal
+        open={drResolveModal !== null}
+        reportId={drResolveModal?.id || null}
+        bookingId={drResolveModal?.bookingId || null}
+        busy={busyResolveDr === drResolveModal?.id}
+        onClose={() => setDrResolveModal(null)}
+        onSubmit={resolveDamageReport}
       />
     </>
   );

@@ -52,3 +52,10 @@ class Payment(Base):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    deposit_amount_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=25000, server_default="25000")
+    deposit_status: Mapped[str] = mapped_column(String, nullable=False, default="HELD", server_default="HELD")
+    deposit_released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    refund_amount_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cancellation_policy_applied: Mapped[str | None] = mapped_column(String, nullable=True)

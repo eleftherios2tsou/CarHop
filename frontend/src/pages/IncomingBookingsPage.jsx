@@ -4,7 +4,8 @@ import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import StateNotice from "../components/ui/StateNotice";
 import DisputeCreateModal from "../components/disputes/DisputeCreateModal";
-import { apiFetch } from "../lib/api";
+import DamageReportModal from "../components/DamageReportModal";
+import { apiFetch, apiFetchForm } from "../lib/api";
 
 function bookingStatusTone(status) {
   if (status === "PENDING") return "warn";
@@ -29,6 +30,13 @@ function paymentTone(status) {
   return "warn";
 }
 
+function depositTone(status) {
+  if (status === "HELD") return "warn";
+  if (status === "RELEASED") return "ok";
+  if (status === "FORFEITED") return "bad";
+  return "warn";
+}
+
 const PAGE_SIZE = 20;
 
 export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuthError }) {
@@ -47,6 +55,12 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
   const [busyDispute, setBusyDispute] = useState(null);
   const [busyPaymentAction, setBusyPaymentAction] = useState(null);
   const [disputeModalBookingId, setDisputeModalBookingId] = useState(null);
+  const [damageReportsByBooking, setDamageReportsByBooking] = useState({});
+  const [damageModalBookingId, setDamageModalBookingId] = useState(null);
+  const [busyDamageReport, setBusyDamageReport] = useState(null);
+  const [ownerReviews, setOwnerReviews] = useState([]);
+  const [renterReviewDrafts, setRenterReviewDrafts] = useState({});
+  const [busyRenterReview, setBusyRenterReview] = useState(null);
   const pollRef = useRef(null);
 
   async function fetchIncoming(targetPage = page) {
@@ -58,6 +72,11 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       setTotal(data?.total ?? 0);
       await Promise.all(list.map((b) => loadDispute(b.id, false)));
       await Promise.all(list.map((b) => loadPayment(b.id, false)));
+      await Promise.all(
+        list.filter((b) => b.status === "COMPLETED").map((b) => loadDamageReport(b.id, false))
+      );
+      const reviews = await apiFetch("/reviews/mine", { onAuthError }).catch(() => []);
+      setOwnerReviews(Array.isArray(reviews) ? reviews : []);
     } catch {
       setIncoming([]);
     } finally {
@@ -137,6 +156,66 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
       } else if (showError) {
         notify(`Payment load error: ${err.message}`, "bad");
       }
+    }
+  }
+
+  async function loadDamageReport(bookingId, showError = true) {
+    try {
+      const report = await apiFetch(`/damage-reports/booking/${bookingId}`, { onAuthError });
+      setDamageReportsByBooking((prev) => ({ ...prev, [bookingId]: report }));
+    } catch (err) {
+      if (String(err?.message || "").includes("No damage report")) {
+        setDamageReportsByBooking((prev) => ({ ...prev, [bookingId]: null }));
+      } else if (showError) {
+        notify(`Damage report load error: ${err.message}`, "bad");
+      }
+    }
+  }
+
+  async function fileDamageReport({ bookingId, formData }) {
+    setBusyDamageReport(bookingId);
+    try {
+      await apiFetchForm(`/damage-reports/booking/${bookingId}`, formData, { onAuthError });
+      notify(`Damage report filed for booking #${bookingId}`, "ok");
+      await loadDamageReport(bookingId);
+      setDamageModalBookingId(null);
+    } catch (err) {
+      notify(`Damage report error: ${err.message}`, "bad");
+    } finally {
+      setBusyDamageReport(null);
+    }
+  }
+
+  function setRenterReviewDraft(bookingId, patch) {
+    setRenterReviewDrafts((prev) => ({
+      ...prev,
+      [bookingId]: {
+        rating: prev[bookingId]?.rating || 5,
+        comment: prev[bookingId]?.comment || "",
+        ...patch,
+      },
+    }));
+  }
+
+  async function submitRenterReview(bookingId) {
+    const draft = renterReviewDrafts[bookingId] || { rating: 5, comment: "" };
+    setBusyRenterReview(bookingId);
+    try {
+      await apiFetch(`/reviews/${bookingId}/renter`, {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({
+          rating: Number(draft.rating || 5),
+          comment: draft.comment?.trim() || null,
+        }),
+      });
+      notify(`Renter review submitted for booking #${bookingId}`, "ok");
+      const reviews = await apiFetch("/reviews/mine", { onAuthError }).catch(() => []);
+      setOwnerReviews(Array.isArray(reviews) ? reviews : []);
+    } catch (err) {
+      notify(`Renter review error: ${err.message}`, "bad");
+    } finally {
+      setBusyRenterReview(null);
     }
   }
 
@@ -245,6 +324,17 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
               const threadOpen = openThreadId === b.id;
               const dispute = disputesByBooking[b.id];
               const payment = paymentsByBooking[b.id];
+              const damageReport = damageReportsByBooking[b.id];
+              const renterReviewedIds = new Set(
+                ownerReviews
+                  .filter((r) => r.review_type === "RENTER_REVIEW")
+                  .map((r) => r.booking_id)
+              );
+              const canReviewRenter =
+                b.status === "COMPLETED" &&
+                !renterReviewedIds.has(b.id) &&
+                new Date(`${b.end_date}T23:59:59`) < new Date();
+              const renterReviewDraft = renterReviewDrafts[b.id] || { rating: 5, comment: "" };
 
               return (
                 <div className="rowCard" key={b.id}>
@@ -264,8 +354,18 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                         </span>
                       ) : null}
                       {payment ? (
+                        <span style={{ marginLeft: 8, display: "inline-flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                          <Badge tone={paymentTone(payment.status)}>{payment.status}</Badge>
+                          <span className="tiny muted">Rental: £{Number(payment.amount_total).toFixed(2)}</span>
+                          <span className="tiny muted">Deposit: £{(payment.deposit_amount_pence / 100).toFixed(2)}</span>
+                          <Badge tone={depositTone(payment.deposit_status)}>Deposit {payment.deposit_status}</Badge>
+                        </span>
+                      ) : null}
+                      {b.status === "COMPLETED" && damageReport ? (
                         <span style={{ marginLeft: 8 }}>
-                          <Badge tone={paymentTone(payment.status)}>Payment: {payment.status}</Badge>
+                          <Badge tone={damageReport.status === "OPEN" || damageReport.status === "UNDER_REVIEW" ? "warn" : "ok"}>
+                            Damage report: {damageReport.status}
+                          </Badge>
                         </span>
                       ) : null}
                     </div>
@@ -321,6 +421,55 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
                       >
                         Release Escrow
                       </Button>
+                    ) : null}
+
+                    {b.status === "COMPLETED" && damageReport === null ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setDamageModalBookingId(b.id)}
+                        loading={busyDamageReport === b.id}
+                      >
+                        File Damage Report
+                      </Button>
+                    ) : null}
+
+                    {canReviewRenter ? (
+                      <>
+                        <label className="field">
+                          <span className="fieldLabel">Renter rating</span>
+                          <select
+                            className="input"
+                            value={renterReviewDraft.rating}
+                            onChange={(e) => setRenterReviewDraft(b.id, { rating: Number(e.target.value) })}
+                          >
+                            <option value={5}>5</option>
+                            <option value={4}>4</option>
+                            <option value={3}>3</option>
+                            <option value={2}>2</option>
+                            <option value={1}>1</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span className="fieldLabel">Comment</span>
+                          <input
+                            className="input"
+                            type="text"
+                            value={renterReviewDraft.comment}
+                            onChange={(e) => setRenterReviewDraft(b.id, { comment: e.target.value })}
+                            placeholder="How was the renter?"
+                            maxLength={1000}
+                          />
+                        </label>
+                        <Button
+                          onClick={() => submitRenterReview(b.id)}
+                          loading={busyRenterReview === b.id}
+                        >
+                          Review Renter
+                        </Button>
+                      </>
+                    ) : null}
+                    {b.status === "COMPLETED" && renterReviewedIds.has(b.id) ? (
+                      <span className="tiny muted">Renter reviewed</span>
                     ) : null}
                   </div>
 
@@ -412,6 +561,13 @@ export default function IncomingBookingsPage({ profile, isAuthed, notify, onAuth
         busy={busyDispute === disputeModalBookingId}
         onClose={() => setDisputeModalBookingId(null)}
         onSubmit={openDispute}
+      />
+      <DamageReportModal
+        open={damageModalBookingId !== null}
+        bookingId={damageModalBookingId}
+        busy={busyDamageReport === damageModalBookingId}
+        onClose={() => setDamageModalBookingId(null)}
+        onSubmit={fileDamageReport}
       />
     </>
   );

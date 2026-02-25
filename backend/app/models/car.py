@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Integer, ForeignKey, Text
+from sqlalchemy import Boolean, String, Integer, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -39,6 +39,8 @@ class CarListing(Base):
     features: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     status: Mapped[str] = mapped_column(String, nullable=False, default="AVAILABLE")
+    cancellation_policy: Mapped[str] = mapped_column(String, nullable=False, default="FLEXIBLE", server_default="FLEXIBLE")
+    instant_book_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     photos: Mapped[list["CarPhoto"]] = relationship(
         "CarPhoto",
