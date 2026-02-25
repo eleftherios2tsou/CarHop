@@ -131,6 +131,16 @@ def request_booking(
     require_verified_license(db, current_user.id)
     validate_dates(payload.start_date, payload.end_date)
 
+    # Reject if renter's licence expires before the booking start date
+    lic = db.query(DriverLicense).filter_by(user_id=current_user.id).first()
+    if lic and lic.expiry_date < payload.start_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your driver's licence expires on {lic.expiry_date}, "
+                   f"before this booking starts on {payload.start_date}. "
+                   f"Please renew your licence before booking.",
+        )
+
     car = db.get(CarListing, car_id)
     if not car:
         raise HTTPException(status_code=404, detail="Car not found")
@@ -177,6 +187,8 @@ def request_booking(
 
     car_label = f"{car.make} {car.model} ({car.year})"
     owner = db.get(User, car.owner_id)
+    trip_days = (booking.end_date - booking.start_date).days + 1
+    trip_total = car.daily_price * trip_days
 
     if instant_approved:
         # Notify renter that booking is instantly confirmed
@@ -186,6 +198,8 @@ def request_booking(
             car=car_label,
             start=booking.start_date,
             end=booking.end_date,
+            days=trip_days,
+            total=trip_total,
         )
     elif owner:
         # Notify owner of a new pending request
@@ -196,6 +210,8 @@ def request_booking(
             car=car_label,
             start=booking.start_date,
             end=booking.end_date,
+            days=trip_days,
+            total=trip_total,
         )
 
     return booking
@@ -275,12 +291,16 @@ def approve_booking(
     renter = db.get(User, booking.renter_id)
     if renter:
         car_label = f"{car.make} {car.model} ({car.year})"
+        trip_days = (booking.end_date - booking.start_date).days + 1
+        trip_total = car.daily_price * trip_days
         notify_booking_approved(
             renter_email=renter.email,
             renter_name=renter.full_name,
             car=car_label,
             start=booking.start_date,
             end=booking.end_date,
+            days=trip_days,
+            total=trip_total,
         )
 
     return booking

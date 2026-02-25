@@ -14,6 +14,11 @@ function isValidDateRange(s, e) {
   return ed >= sd;
 }
 
+function calcTripDays(s, e) {
+  if (!isValidDateRange(s, e)) return 0;
+  return Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
+}
+
 function plusDaysIso(days) {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -72,6 +77,7 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
   const [busyDelete, setBusyDelete] = useState(null);
   const [safetyOpen, setSafetyOpen] = useState(false);
   const [pendingCarId, setPendingCarId] = useState(null);
+  const [pendingCar, setPendingCar] = useState(null);
   const [ownerProfileId, setOwnerProfileId] = useState(null);
 
   // AI search state
@@ -192,8 +198,9 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
   }
 
   // ── Booking / delete ─────────────────────────────────────────────────────
-  function openSafety(carId) {
-    setPendingCarId(carId);
+  function openSafety(car) {
+    setPendingCarId(car.id);
+    setPendingCar(car);
     setSafetyOpen(true);
   }
 
@@ -612,33 +619,49 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
                     ) : null}
 
                     <div className="tileActions">
-                      <Button
-                        onClick={() => openSafety(c.id)}
-                        disabled={!canRequest}
-                        loading={busyBooking === c.id}
-                      >
-                        Request Booking
-                      </Button>
+                      {(() => {
+                        const days = calcTripDays(startDate, endDate);
+                        const tripTotal = days * (c.daily_price || 0);
+                        const licExpired =
+                          profile?.license_expiry_date &&
+                          startDate &&
+                          new Date(profile.license_expiry_date) < new Date(startDate);
+                        return (
+                          <>
+                            <Button
+                              onClick={() => openSafety(c)}
+                              disabled={!canRequest || licExpired}
+                              loading={busyBooking === c.id}
+                            >
+                              Request Booking
+                            </Button>
 
-                      {canDeleteCar(c) ? (
-                        <Button
-                          variant="danger"
-                          onClick={() => deleteCarListing(c.id)}
-                          loading={busyDelete === c.id}
-                        >
-                          Delete
-                        </Button>
-                      ) : null}
+                            {canDeleteCar(c) ? (
+                              <Button
+                                variant="danger"
+                                onClick={() => deleteCarListing(c.id)}
+                                loading={busyDelete === c.id}
+                              >
+                                Delete
+                              </Button>
+                            ) : null}
 
-                      {!gates.canBook ? (
-                        <div className="tiny muted">Unlock booking: verify email and get license approved.</div>
-                      ) : !datesOk ? (
-                        <div className="tiny muted">Pick a valid date range first.</div>
-                      ) : (
-                        <div className="tiny muted">
-                          {startDate} to {endDate}
-                        </div>
-                      )}
+                            {licExpired ? (
+                              <div className="tiny" style={{ color: "var(--bad-text, #b91c1c)" }}>
+                                Your licence expires {profile.license_expiry_date} — renew before booking.
+                              </div>
+                            ) : !gates.canBook ? (
+                              <div className="tiny muted">Unlock booking: verify email and get license approved.</div>
+                            ) : !datesOk ? (
+                              <div className="tiny muted">Pick a valid date range first.</div>
+                            ) : (
+                              <div className="tiny muted">
+                                {startDate} → {endDate} &middot; {days} day{days !== 1 ? "s" : ""} &middot; <strong>£{tripTotal}</strong> total
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -675,6 +698,11 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
         onClose={() => setSafetyOpen(false)}
         onConfirm={() => requestBooking(pendingCarId)}
         busy={busyBooking === pendingCarId}
+        carName={pendingCar ? `${pendingCar.make} ${pendingCar.model} (${pendingCar.year})` : ""}
+        days={calcTripDays(startDate, endDate)}
+        dailyPrice={pendingCar?.daily_price ?? 0}
+        startDate={startDate}
+        endDate={endDate}
       />
       <OwnerProfileModal
         ownerId={ownerProfileId}

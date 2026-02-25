@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Modal from "./ui/Modal";
 import Button from "./ui/Button";
 
-export default function SafetyInfoModal({ open, onClose, onConfirm, busy }) {
+export default function SafetyInfoModal({ open, onClose, onConfirm, busy, carName, days, dailyPrice, startDate, endDate }) {
   const [acknowledged, setAcknowledged] = useState(false);
 
   // Reset checkbox each time the modal opens
@@ -13,6 +13,41 @@ export default function SafetyInfoModal({ open, onClose, onConfirm, busy }) {
   return (
     <Modal open={open} title="Before you book — important information" onClose={onClose}>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "4px 0" }}>
+
+        {carName && days > 0 ? (
+          <div style={{
+            background: "var(--surface-alt)",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius-md)",
+            padding: "12px 14px",
+          }}>
+            <div style={{ fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>Booking summary</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <tbody>
+                <tr>
+                  <td style={{ color: "var(--text-soft)", paddingBottom: 4, width: "40%" }}>Car</td>
+                  <td style={{ fontWeight: 600 }}>{carName}</td>
+                </tr>
+                <tr>
+                  <td style={{ color: "var(--text-soft)", paddingBottom: 4 }}>Dates</td>
+                  <td style={{ fontWeight: 600 }}>{startDate} → {endDate}</td>
+                </tr>
+                <tr>
+                  <td style={{ color: "var(--text-soft)", paddingBottom: 4 }}>Duration</td>
+                  <td style={{ fontWeight: 600 }}>{days} day{days !== 1 ? "s" : ""}</td>
+                </tr>
+                <tr>
+                  <td style={{ color: "var(--text-soft)", paddingBottom: 4 }}>Daily rate</td>
+                  <td style={{ fontWeight: 600 }}>£{dailyPrice}/day</td>
+                </tr>
+                <tr>
+                  <td style={{ color: "var(--text-soft)", fontWeight: 700 }}>Trip total</td>
+                  <td style={{ fontWeight: 700, fontSize: 16, color: "var(--brand)" }}>£{days * dailyPrice}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : null}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 

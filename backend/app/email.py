@@ -77,8 +77,22 @@ def notify_booking_requested(
     car: str,
     start: date,
     end: date,
+    days: int = 0,
+    total: int = 0,
 ) -> None:
     subject = f"New booking request for your {car}"
+    cost_row = (
+        f"""
+        <tr>
+          <td style="padding:8px 0;color:#5b6472;font-size:13px">Duration</td>
+          <td style="padding:8px 0;font-weight:600">{days} day{"s" if days != 1 else ""}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;color:#5b6472;font-size:13px">Trip total</td>
+          <td style="padding:8px 0;font-weight:600">£{total}</td>
+        </tr>"""
+        if days and total else ""
+    )
     body = f"""
       <h2 style="margin:0 0 12px;font-size:18px">New booking request 🚗</h2>
       <p>Hi <strong>{owner_name}</strong>,</p>
@@ -87,7 +101,7 @@ def notify_booking_requested(
         <tr>
           <td style="padding:8px 0;color:#5b6472;font-size:13px">Dates</td>
           <td style="padding:8px 0;font-weight:600">{start} &rarr; {end}</td>
-        </tr>
+        </tr>{cost_row}
       </table>
       <p>Log in to CarHop to approve or reject this request.</p>
     """
@@ -100,8 +114,22 @@ def notify_booking_approved(
     car: str,
     start: date,
     end: date,
+    days: int = 0,
+    total: int = 0,
 ) -> None:
     subject = f"Booking confirmed: {car}"
+    cost_row = (
+        f"""
+        <tr>
+          <td style="padding:8px 0;color:#5b6472;font-size:13px">Duration</td>
+          <td style="padding:8px 0;font-weight:600">{days} day{"s" if days != 1 else ""}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;color:#5b6472;font-size:13px">Trip total</td>
+          <td style="padding:8px 0;font-weight:600">£{total}</td>
+        </tr>"""
+        if days and total else ""
+    )
     body = f"""
       <h2 style="margin:0 0 12px;font-size:18px">Your booking is confirmed ✅</h2>
       <p>Hi <strong>{renter_name}</strong>,</p>
@@ -110,7 +138,7 @@ def notify_booking_approved(
         <tr>
           <td style="padding:8px 0;color:#5b6472;font-size:13px">Dates</td>
           <td style="padding:8px 0;font-weight:600">{start} &rarr; {end}</td>
-        </tr>
+        </tr>{cost_row}
       </table>
       <p>Enjoy your trip!</p>
     """
