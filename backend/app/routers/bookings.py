@@ -131,13 +131,13 @@ def request_booking(
     require_verified_license(db, current_user.id)
     validate_dates(payload.start_date, payload.end_date)
 
-    # Reject if renter's licence expires before the booking start date
+    # Reject if renter's licence expires before or during the booking
     lic = db.query(DriverLicense).filter_by(user_id=current_user.id).first()
-    if lic and lic.expiry_date < payload.start_date:
+    if lic and lic.expiry_date < payload.end_date:
         raise HTTPException(
             status_code=400,
             detail=f"Your driver's licence expires on {lic.expiry_date}, "
-                   f"before this booking starts on {payload.start_date}. "
+                   f"before this booking ends on {payload.end_date}. "
                    f"Please renew your licence before booking.",
         )
 

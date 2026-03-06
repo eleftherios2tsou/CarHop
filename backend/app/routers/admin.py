@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -125,3 +125,69 @@ def activate_user(
     user.is_active = True
     db.commit()
     return {"message": f"User #{user_id} activated"}
+
+
+@router.post("/payments/{booking_id}/release", dependencies=[Depends(csrf_protect)])
+def release_escrow(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(_require_admin),
+):
+    """Release escrow funds to the car owner."""
+    from app.models.booking import BookingRequest
+    from app.models.car import CarListing
+    from app.models.payment import Payment
+    from app.email import notify_escrow_released
+
+    payment = db.query(Payment).filter_by(booking_id=booking_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="No payment found for this booking")
+    if payment.status != "HELD_IN_ESCROW":
+        raise HTTPException(status_code=400, detail=f"Cannot release: payment status is {payment.status}")
+
+    payment.status = "RELEASED"
+    payment.released_at = datetime.now(timezone.utc)
+    payment.deposit_status = "RELEASED"
+    payment.deposit_released_at = datetime.now(timezone.utc)
+    db.commit()
+
+    # Email the owner
+    booking = db.get(BookingRequest, booking_id)
+    if booking:
+        car = db.get(CarListing, booking.car_id)
+        owner = db.get(User, payment.owner_id)
+        if car and owner:
+            notify_escrow_released(
+                owner_email=owner.email,
+                owner_name=owner.full_name,
+                car=f"{car.make} {car.model} ({car.year})",
+                amount=payment.payout_amount,
+                currency=payment.currency,
+            )
+
+    return {"message": f"Escrow released for booking #{booking_id}"}
+
+
+@router.post("/payments/{booking_id}/forfeit", dependencies=[Depends(csrf_protect)])
+def forfeit_escrow(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(_require_admin),
+):
+    """Forfeit escrow — funds returned to renter (owner loses payout)."""
+    from app.models.payment import Payment
+
+    payment = db.query(Payment).filter_by(booking_id=booking_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="No payment found for this booking")
+    if payment.status != "HELD_IN_ESCROW":
+        raise HTTPException(status_code=400, detail=f"Cannot forfeit: payment status is {payment.status}")
+
+    payment.status = "FORFEITED"
+    payment.refunded_at = datetime.now(timezone.utc)
+    payment.deposit_status = "RELEASED"
+    payment.deposit_released_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {"message": f"Escrow forfeited for booking #{booking_id} — funds returned to renter"}
+

@@ -64,3 +64,35 @@ export async function createVerifiedLicenseInDb(userId) {
     await client.end();
   }
 }
+
+export async function makeUserAdmin(email) {
+  const client = new Client({ connectionString: databaseUrl() });
+  await client.connect();
+  try {
+    await client.query(
+      "UPDATE users SET role = 'ADMIN' WHERE email = $1",
+      [email]
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+export async function getPasswordResetToken(email) {
+  const client = new Client({ connectionString: databaseUrl() });
+  await client.connect();
+  try {
+    const res = await client.query(
+      `SELECT prt.token
+       FROM password_reset_tokens prt
+       JOIN users u ON u.id = prt.user_id
+       WHERE u.email = $1
+       ORDER BY prt.id DESC
+       LIMIT 1`,
+      [email]
+    );
+    return res.rows[0]?.token ?? null;
+  } finally {
+    await client.end();
+  }
+}

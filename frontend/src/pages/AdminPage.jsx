@@ -41,6 +41,10 @@ export default function AdminPage({ notify, onAuthError }) {
   const [busyResolveDr, setBusyResolveDr] = useState(null);
   const [drResolveModal, setDrResolveModal] = useState(null);
 
+  // ── Escrow section state ──
+  const [escrowBookingId, setEscrowBookingId] = useState("");
+  const [busyEscrow, setBusyEscrow] = useState(null); // "release" | "forfeit" | null
+
   async function adminVerifyLicense() {
     setBusy(true);
     try {
@@ -140,6 +144,34 @@ export default function AdminPage({ notify, onAuthError }) {
       notify(`Resolve damage report error: ${err.message}`, "bad");
     } finally {
       setBusyResolveDr(null);
+    }
+  }
+
+  async function releaseEscrow() {
+    const bid = Number(escrowBookingId);
+    if (!bid) { notify("Enter a valid booking ID", "warn"); return; }
+    setBusyEscrow("release");
+    try {
+      const res = await apiFetch(`/admin/payments/${bid}/release`, { method: "POST", onAuthError });
+      notify(res.message || `Escrow released for booking #${bid}`, "ok");
+    } catch (err) {
+      notify(`Release error: ${err.message}`, "bad");
+    } finally {
+      setBusyEscrow(null);
+    }
+  }
+
+  async function forfeitEscrow() {
+    const bid = Number(escrowBookingId);
+    if (!bid) { notify("Enter a valid booking ID", "warn"); return; }
+    setBusyEscrow("forfeit");
+    try {
+      const res = await apiFetch(`/admin/payments/${bid}/forfeit`, { method: "POST", onAuthError });
+      notify(res.message || `Escrow forfeited for booking #${bid}`, "ok");
+    } catch (err) {
+      notify(`Forfeit error: ${err.message}`, "bad");
+    } finally {
+      setBusyEscrow(null);
     }
   }
 
@@ -252,6 +284,36 @@ export default function AdminPage({ notify, onAuthError }) {
             ))}
           </div>
         )}
+        <div className="divider" />
+
+        <div className="sectionTitle">Escrow Actions</div>
+        <p className="tiny muted" style={{ marginBottom: 8 }}>
+          Manually release or forfeit escrow funds for a booking by its ID.
+        </p>
+        <Field
+          label="Booking ID"
+          type="number"
+          min="1"
+          value={escrowBookingId}
+          onChange={(e) => setEscrowBookingId(e.target.value)}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          <Button
+            onClick={releaseEscrow}
+            loading={busyEscrow === "release"}
+            disabled={busyEscrow !== null}
+          >
+            Release to Owner
+          </Button>
+          <Button
+            variant="danger"
+            onClick={forfeitEscrow}
+            loading={busyEscrow === "forfeit"}
+            disabled={busyEscrow !== null}
+          >
+            Forfeit (Refund Renter)
+          </Button>
+        </div>
         <div className="divider" />
 
         <div className="sectionTitle">User Management</div>
