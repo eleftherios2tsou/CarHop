@@ -440,8 +440,10 @@ test("admin dispute resolution: admin resolves an open dispute", async ({ browse
     await expect(disputeRow).toBeVisible({ timeout: 8000 });
     await disputeRow.getByRole("button", { name: "Resolve" }).click();
 
-    // DisputeResolveModal should open — submit it
-    await adminPage.getByRole("button", { name: /submit|confirm|resolve/i }).click();
+    // DisputeResolveModal should open — click the modal's submit button.
+    // The row card also has a "Resolve" button so we take the last match,
+    // which is the one rendered inside the modal overlay.
+    await adminPage.getByRole("button", { name: /submit|confirm|resolve/i }).last().click();
 
     // After resolution the dispute should no longer appear in the open list
     await adminPage.getByRole("button", { name: /refresh open disputes/i }).click();

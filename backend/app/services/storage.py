@@ -11,7 +11,6 @@ import os
 from app.config import settings
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
 
 
 def save_file(storage_key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
@@ -36,7 +35,6 @@ def delete_file(storage_key: str) -> None:
         _local_delete(storage_key)
 
 
-# ── Local backend ─────────────────────────────────────────────────────────────
 
 
 def _local_save(storage_key: str, data: bytes) -> str:
@@ -61,7 +59,6 @@ def _local_delete(storage_key: str) -> None:
         pass
 
 
-# ── Azure Blob Storage backend ────────────────────────────────────────────────
 
 
 def _container_client():
