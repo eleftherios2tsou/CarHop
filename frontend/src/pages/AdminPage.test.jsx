@@ -131,8 +131,8 @@ describe("AdminPage", () => {
     fireEvent.change(searchInput, { target: { value: "jane" } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
-    expect(await screen.findByText("Jane Doe")).toBeInTheDocument();
-    expect(screen.getByText("jane@example.com")).toBeInTheDocument();
+    expect(await screen.findByText(/Jane Doe/)).toBeInTheDocument();
+    expect(screen.getByText(/jane@example\.com/)).toBeInTheDocument();
   });
 
   it("shows Deactivate button for active users", async () => {
