@@ -122,9 +122,10 @@ class TestCancelGuards:
         car = _make_car(db, owner_id)
         renter = _make_renter(db, "cancel1")
 
+        renter_id = renter.id
         booking = BookingRequest(
             car_id=car.id,
-            renter_id=renter.id,
+            renter_id=renter_id,
             start_date=date.today() - timedelta(days=5),
             end_date=date.today() - timedelta(days=3),
             status="COMPLETED",
@@ -132,15 +133,16 @@ class TestCancelGuards:
         db.add(booking)
         db.commit()
         db.refresh(booking)
+        booking_id = booking.id
         db.close()
 
         # Override current user to be the renter
         from app.deps import get_current_user
         from types import SimpleNamespace
         app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-            id=renter.id, role="USER", email_verified=True, is_active=True, full_name="Renter"
+            id=renter_id, role="USER", email_verified=True, is_active=True, full_name="Renter"
         )
-        res = test_client.post(f"/bookings/{booking.id}/cancel")
+        res = test_client.post(f"/bookings/{booking_id}/cancel")
         assert res.status_code == 400
         assert "Cannot cancel" in res.json()["detail"]
 
@@ -150,10 +152,11 @@ class TestCancelGuards:
         owner_id = app.state.test_user_id
         car = _make_car(db, owner_id)
         renter = _make_renter(db, "cancel2")
+        renter_id = renter.id
 
         booking = BookingRequest(
             car_id=car.id,
-            renter_id=renter.id,
+            renter_id=renter_id,
             start_date=date.today() + timedelta(days=3),
             end_date=date.today() + timedelta(days=5),
             status="REJECTED",
@@ -161,14 +164,15 @@ class TestCancelGuards:
         db.add(booking)
         db.commit()
         db.refresh(booking)
+        booking_id = booking.id
         db.close()
 
         from app.deps import get_current_user
         from types import SimpleNamespace
         app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-            id=renter.id, role="USER", email_verified=True, is_active=True, full_name="Renter"
+            id=renter_id, role="USER", email_verified=True, is_active=True, full_name="Renter"
         )
-        res = test_client.post(f"/bookings/{booking.id}/cancel")
+        res = test_client.post(f"/bookings/{booking_id}/cancel")
         assert res.status_code == 400
 
     def test_cannot_cancel_approved_booking_that_has_started(self, client):
@@ -177,10 +181,11 @@ class TestCancelGuards:
         owner_id = app.state.test_user_id
         car = _make_car(db, owner_id)
         renter = _make_renter(db, "cancel3")
+        renter_id = renter.id
 
         booking = BookingRequest(
             car_id=car.id,
-            renter_id=renter.id,
+            renter_id=renter_id,
             start_date=date.today() - timedelta(days=1),
             end_date=date.today() + timedelta(days=2),
             status="APPROVED",
@@ -188,14 +193,15 @@ class TestCancelGuards:
         db.add(booking)
         db.commit()
         db.refresh(booking)
+        booking_id = booking.id
         db.close()
 
         from app.deps import get_current_user
         from types import SimpleNamespace
         app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-            id=renter.id, role="USER", email_verified=True, is_active=True, full_name="Renter"
+            id=renter_id, role="USER", email_verified=True, is_active=True, full_name="Renter"
         )
-        res = test_client.post(f"/bookings/{booking.id}/cancel")
+        res = test_client.post(f"/bookings/{booking_id}/cancel")
         assert res.status_code == 400
         assert "Cannot cancel after the booking has started" in res.json()["detail"]
 
@@ -205,10 +211,11 @@ class TestCancelGuards:
         owner_id = app.state.test_user_id
         car = _make_car(db, owner_id)
         renter = _make_renter(db, "cancel4")
+        renter_id = renter.id
 
         booking = BookingRequest(
             car_id=car.id,
-            renter_id=renter.id,
+            renter_id=renter_id,
             start_date=date.today() + timedelta(days=3),
             end_date=date.today() + timedelta(days=5),
             status="PENDING",
@@ -216,14 +223,15 @@ class TestCancelGuards:
         db.add(booking)
         db.commit()
         db.refresh(booking)
+        booking_id = booking.id
         db.close()
 
         from app.deps import get_current_user
         from types import SimpleNamespace
         app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-            id=renter.id, role="USER", email_verified=True, is_active=True, full_name="Renter"
+            id=renter_id, role="USER", email_verified=True, is_active=True, full_name="Renter"
         )
-        res = test_client.post(f"/bookings/{booking.id}/cancel")
+        res = test_client.post(f"/bookings/{booking_id}/cancel")
         assert res.status_code == 200
         assert res.json()["status"] == "CANCELLED"
 
