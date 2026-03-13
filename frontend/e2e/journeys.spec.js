@@ -17,6 +17,7 @@ import {
   getPasswordResetToken,
 } from "./helpers/db";
 
+
 async function setupUsers(browser) {
   const ownerContext = await browser.newContext();
   const renterContext = await browser.newContext();
@@ -392,6 +393,114 @@ test("GDPR export: user can download their personal data", async ({ browser }) =
     expect(Array.isArray(data.bookings)).toBeTruthy();
   } finally {
     await ctx.close();
+  }
+});
+
+test("admin dispute resolution: admin resolves an open dispute", async ({ browser }) => {
+  const adminCtx = await browser.newContext();
+  const ownerCtx = await browser.newContext();
+  const renterCtx = await browser.newContext();
+  try {
+    const adminUser = buildUser("drAdmin");
+    const adminProfile = await registerVerifyLogin(adminCtx, adminUser);
+    await makeUserAdmin(adminUser.email);
+
+    // Re-login so role is refreshed in session
+    await adminCtx.request.post("/api/auth/login", {
+      data: { email: adminUser.email, password: adminUser.password },
+    });
+
+    const { bookingId } = await seedApprovedBooking({
+      ownerContext: ownerCtx,
+      renterContext: renterCtx,
+      startDate: isoDate(2),
+      endDate: isoDate(4),
+      make: "Fiat",
+      model: `E2EAdminDispute${Date.now()}`,
+    });
+
+    // Renter opens a dispute via API
+    const disputeRes = await authedPost(renterCtx, `/api/disputes/booking/${bookingId}`, {
+      reason: "Car condition",
+      details: "There was significant damage pre-existing.",
+    });
+    expect(disputeRes.ok()).toBeTruthy();
+    const dispute = await disputeRes.json();
+
+    // Admin navigates to Admin panel and loads disputes
+    const adminPage = await adminCtx.newPage();
+    await adminPage.goto("/");
+    await adminPage.getByRole("button", { name: "Navigation menu" }).click();
+    await adminPage.getByRole("button", { name: "Admin", exact: true }).click();
+    await adminPage.getByRole("button", { name: /refresh open disputes/i }).click();
+
+    // Find and resolve the dispute
+    const disputeRow = adminPage.locator(".rowCard").filter({
+      hasText: `Dispute #${dispute.id}`,
+    });
+    await expect(disputeRow).toBeVisible({ timeout: 8000 });
+    await disputeRow.getByRole("button", { name: "Resolve" }).click();
+
+    // DisputeResolveModal should open — submit it
+    await adminPage.getByRole("button", { name: /submit|confirm|resolve/i }).click();
+
+    // After resolution the dispute should no longer appear in the open list
+    await adminPage.getByRole("button", { name: /refresh open disputes/i }).click();
+    await expect(disputeRow).not.toBeVisible({ timeout: 8000 });
+  } finally {
+    await adminCtx.close();
+    await ownerCtx.close();
+    await renterCtx.close();
+  }
+});
+
+test("messaging: renter sends message and owner sees it", async ({ browser }) => {
+  const ownerCtx = await browser.newContext();
+  const renterCtx = await browser.newContext();
+  try {
+    const { bookingId } = await seedApprovedBooking({
+      ownerContext: ownerCtx,
+      renterContext: renterCtx,
+      startDate: isoDate(3),
+      endDate: isoDate(5),
+      make: "Mazda",
+      model: `E2EMsg${Date.now()}`,
+    });
+
+    const messageText = `Hello, can I pick up at 9am? (${Date.now()})`;
+
+    // Renter sends a message via API
+    const sendRes = await authedPost(renterCtx, `/api/messages/booking/${bookingId}`, {
+      content: messageText,
+    });
+    expect(sendRes.ok()).toBeTruthy();
+
+    // Owner reads messages via API
+    const ownerReadRes = await ownerCtx.request.get(
+      `/api/messages/booking/${bookingId}`
+    );
+    expect(ownerReadRes.ok()).toBeTruthy();
+    const messages = await ownerReadRes.json();
+    expect(messages.some((m) => m.content === messageText)).toBeTruthy();
+
+    // Owner replies
+    const replyText = `Sure, 9am works! (${Date.now()})`;
+    const replyRes = await authedPost(ownerCtx, `/api/messages/booking/${bookingId}`, {
+      content: replyText,
+    });
+    expect(replyRes.ok()).toBeTruthy();
+
+    // Renter reads back and sees the reply
+    const renterReadRes = await renterCtx.request.get(
+      `/api/messages/booking/${bookingId}`
+    );
+    expect(renterReadRes.ok()).toBeTruthy();
+    const thread = await renterReadRes.json();
+    expect(thread.some((m) => m.content === replyText)).toBeTruthy();
+    expect(thread.length).toBeGreaterThanOrEqual(2);
+  } finally {
+    await ownerCtx.close();
+    await renterCtx.close();
   }
 });
 
