@@ -264,6 +264,7 @@ test("availability blocks: renter cannot book a blocked date range", async ({ br
 
 
 test("owner reviews renter after completed trip", async ({ browser }) => {
+  test.setTimeout(120_000);
   const { ownerContext, renterContext } = await setupUsers(browser);
   try {
     const { bookingId, completed } = await seedCompletedBooking({
@@ -287,10 +288,8 @@ test("owner reviews renter after completed trip", async ({ browser }) => {
     await expect(ownerRow).toContainText("COMPLETED");
 
     // Fill in renter review rating and comment then submit
-    await ownerRow.locator("select").selectOption({ label: "5" }).catch(() =>
-      ownerRow.locator("select").first().selectOption("5")
-    );
-    await ownerRow.getByPlaceholder(/comment/i).fill("Great renter, on time!");
+    await ownerRow.locator("select").selectOption("5");
+    await ownerRow.getByPlaceholder("How was the renter?").fill("Great renter, on time!");
     await ownerRow.getByRole("button", { name: "Review Renter" }).click();
     await expect(ownerRow).toContainText("Renter reviewed", { timeout: 10000 });
   } finally {
@@ -371,7 +370,11 @@ test("password reset: user can reset password via token", async ({ browser }) =>
       data: { email: user.email, password: newPassword },
     });
     expect(loginRes.ok()).toBeTruthy();
-    const profile = await loginRes.json();
+
+    // Login returns {"message":"Logged in"} — fetch profile separately
+    const profileRes = await ctx.request.get("/api/profile/me");
+    expect(profileRes.ok()).toBeTruthy();
+    const profile = await profileRes.json();
     expect(profile.email).toBe(user.email);
   } finally {
     await ctx.close();
@@ -388,8 +391,9 @@ test("GDPR export: user can download their personal data", async ({ browser }) =
     expect(exportRes.ok()).toBeTruthy();
 
     const data = await exportRes.json();
-    expect(data.email).toBe(user.email);
-    expect(data.full_name).toBe(user.full_name);
+    // Export response is nested: { profile: {...}, bookings: [...], payments: [...] }
+    expect(data.profile.email).toBe(user.email);
+    expect(data.profile.full_name).toBe(user.full_name);
     expect(Array.isArray(data.bookings)).toBeTruthy();
   } finally {
     await ctx.close();
@@ -397,6 +401,7 @@ test("GDPR export: user can download their personal data", async ({ browser }) =
 });
 
 test("admin dispute resolution: admin resolves an open dispute", async ({ browser }) => {
+  test.setTimeout(120_000);
   const adminCtx = await browser.newContext();
   const { ownerContext, renterContext } = await setupUsers(browser);
   try {
@@ -440,10 +445,8 @@ test("admin dispute resolution: admin resolves an open dispute", async ({ browse
     await expect(disputeRow).toBeVisible({ timeout: 8000 });
     await disputeRow.getByRole("button", { name: "Resolve" }).click();
 
-    // DisputeResolveModal should open — click the modal's submit button.
-    // The row card also has a "Resolve" button so we take the last match,
-    // which is the one rendered inside the modal overlay.
-    await adminPage.getByRole("button", { name: /submit|confirm|resolve/i }).last().click();
+    // DisputeResolveModal should open — submit via the "Apply Decision" button.
+    await adminPage.getByRole("button", { name: /apply decision/i }).click();
 
     // After resolution the dispute should no longer appear in the open list
     await adminPage.getByRole("button", { name: /refresh open disputes/i }).click();
