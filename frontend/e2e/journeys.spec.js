@@ -398,21 +398,20 @@ test("GDPR export: user can download their personal data", async ({ browser }) =
 
 test("admin dispute resolution: admin resolves an open dispute", async ({ browser }) => {
   const adminCtx = await browser.newContext();
-  const ownerCtx = await browser.newContext();
-  const renterCtx = await browser.newContext();
+  const { ownerContext, renterContext } = await setupUsers(browser);
   try {
     const adminUser = buildUser("drAdmin");
-    const adminProfile = await registerVerifyLogin(adminCtx, adminUser);
+    await registerVerifyLogin(adminCtx, adminUser);
     await makeUserAdmin(adminUser.email);
 
-    // Re-login so role is refreshed in session
+    // Re-login so the role is picked up by the session
     await adminCtx.request.post("/api/auth/login", {
       data: { email: adminUser.email, password: adminUser.password },
     });
 
     const { bookingId } = await seedApprovedBooking({
-      ownerContext: ownerCtx,
-      renterContext: renterCtx,
+      ownerContext,
+      renterContext,
       startDate: isoDate(2),
       endDate: isoDate(4),
       make: "Fiat",
@@ -420,7 +419,7 @@ test("admin dispute resolution: admin resolves an open dispute", async ({ browse
     });
 
     // Renter opens a dispute via API
-    const disputeRes = await authedPost(renterCtx, `/api/disputes/booking/${bookingId}`, {
+    const disputeRes = await authedPost(renterContext, `/api/disputes/booking/${bookingId}`, {
       reason: "Car condition",
       details: "There was significant damage pre-existing.",
     });
@@ -449,18 +448,17 @@ test("admin dispute resolution: admin resolves an open dispute", async ({ browse
     await expect(disputeRow).not.toBeVisible({ timeout: 8000 });
   } finally {
     await adminCtx.close();
-    await ownerCtx.close();
-    await renterCtx.close();
+    await ownerContext.close();
+    await renterContext.close();
   }
 });
 
 test("messaging: renter sends message and owner sees it", async ({ browser }) => {
-  const ownerCtx = await browser.newContext();
-  const renterCtx = await browser.newContext();
+  const { ownerContext, renterContext } = await setupUsers(browser);
   try {
     const { bookingId } = await seedApprovedBooking({
-      ownerContext: ownerCtx,
-      renterContext: renterCtx,
+      ownerContext,
+      renterContext,
       startDate: isoDate(3),
       endDate: isoDate(5),
       make: "Mazda",
@@ -470,13 +468,13 @@ test("messaging: renter sends message and owner sees it", async ({ browser }) =>
     const messageText = `Hello, can I pick up at 9am? (${Date.now()})`;
 
     // Renter sends a message via API
-    const sendRes = await authedPost(renterCtx, `/api/messages/booking/${bookingId}`, {
+    const sendRes = await authedPost(renterContext, `/api/messages/booking/${bookingId}`, {
       content: messageText,
     });
     expect(sendRes.ok()).toBeTruthy();
 
     // Owner reads messages via API
-    const ownerReadRes = await ownerCtx.request.get(
+    const ownerReadRes = await ownerContext.request.get(
       `/api/messages/booking/${bookingId}`
     );
     expect(ownerReadRes.ok()).toBeTruthy();
@@ -485,13 +483,13 @@ test("messaging: renter sends message and owner sees it", async ({ browser }) =>
 
     // Owner replies
     const replyText = `Sure, 9am works! (${Date.now()})`;
-    const replyRes = await authedPost(ownerCtx, `/api/messages/booking/${bookingId}`, {
+    const replyRes = await authedPost(ownerContext, `/api/messages/booking/${bookingId}`, {
       content: replyText,
     });
     expect(replyRes.ok()).toBeTruthy();
 
     // Renter reads back and sees the reply
-    const renterReadRes = await renterCtx.request.get(
+    const renterReadRes = await renterContext.request.get(
       `/api/messages/booking/${bookingId}`
     );
     expect(renterReadRes.ok()).toBeTruthy();
@@ -499,8 +497,8 @@ test("messaging: renter sends message and owner sees it", async ({ browser }) =>
     expect(thread.some((m) => m.content === replyText)).toBeTruthy();
     expect(thread.length).toBeGreaterThanOrEqual(2);
   } finally {
-    await ownerCtx.close();
-    await renterCtx.close();
+    await ownerContext.close();
+    await renterContext.close();
   }
 });
 
