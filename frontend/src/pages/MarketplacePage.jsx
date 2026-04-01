@@ -328,7 +328,7 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
             <div className="heroBarSep" />
 
             <label className="heroBarField">
-              <span className="heroBarLabel">From</span>
+              <span className="heroBarLabel">Check-in (2:00 PM)</span>
               <input
                 className="heroBarInput"
                 type="date"
@@ -340,7 +340,7 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
             <div className="heroBarSep" />
 
             <label className="heroBarField">
-              <span className="heroBarLabel">Until</span>
+              <span className="heroBarLabel">Check-out (10:00 AM)</span>
               <input
                 className="heroBarInput"
                 type="date"
@@ -656,7 +656,7 @@ export default function MarketplacePage({ profile, gates, notify, onAuthError, o
                               <div className="tiny muted">Pick a valid date range first.</div>
                             ) : (
                               <div className="tiny muted">
-                                {startDate} → {endDate} &middot; {days} day{days !== 1 ? "s" : ""} &middot; <strong>£{tripTotal}</strong> total
+                                Check-in {startDate} at 2:00 PM &middot; Check-out {endDate} at 10:00 AM &middot; {days} day{days !== 1 ? "s" : ""} &middot; <strong>£{tripTotal}</strong> total
                               </div>
                             )}
                           </>

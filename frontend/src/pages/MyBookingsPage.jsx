@@ -6,6 +6,16 @@ import StateNotice from "../components/ui/StateNotice";
 import DisputeCreateModal from "../components/disputes/DisputeCreateModal";
 import { apiFetch } from "../lib/api";
 
+// platform-wide check-in / check-out policy
+const CHECK_IN_TIME  = "2:00 PM";
+const CHECK_OUT_TIME = "10:00 AM";
+
+// formats "2025-01-12" → "12 Jan 2025"
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function cancelRefundLabel(policy, startDate) {
   const hours = (new Date(startDate) - Date.now()) / 3600000;
   const pct =
@@ -328,8 +338,10 @@ export default function MyBookingsPage({ profile, isAuthed, notify, onAuthError 
                     <div className="rowCardTitle">
                       Booking #{b.id} <span className="muted">- car #{b.car_id}</span>
                     </div>
-                    <div className="rowCardSub">
-                      Dates: <span className="mono">{b.start_date}</span> to <span className="mono">{b.end_date}</span>
+                    <div className="rowCardSub" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <span>🔑 Check-in: <strong>{fmtDate(b.start_date)}</strong> at {CHECK_IN_TIME}</span>
+                      <span>·</span>
+                      <span>🚗 Check-out: <strong>{fmtDate(b.end_date)}</strong> at {CHECK_OUT_TIME}</span>
                     </div>
                     <div className="rowCardSub">
                       Status: <Badge tone={bookingStatusTone(b.status)}>{b.status}</Badge>

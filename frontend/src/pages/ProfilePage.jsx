@@ -147,10 +147,7 @@ export default function ProfilePage({
   const [licensePhotoPreview, setLicensePhotoPreview] = useState(null);
   const [selfiePreview, setSelfiePreview]     = useState(null);
 
-  const [adminVerifyUserId, setAdminVerifyUserId] = useState("1");
-  const [adminRejectReason, setAdminRejectReason] = useState("");
   const [busyLicense, setBusyLicense]         = useState(false);
-  const [busyAdmin, setBusyAdmin]             = useState(false);
   const [busyPayoutConnect, setBusyPayoutConnect] = useState(false);
   const [busyPayoutRefresh, setBusyPayoutRefresh] = useState(false);
   const [busyDelete, setBusyDelete] = useState(false);
@@ -231,39 +228,6 @@ export default function ProfilePage({
       notify(`License error: ${err.message}`, "bad");
     } finally {
       setBusyLicense(false);
-    }
-  }
-
-  async function adminVerifyLicense() {
-    setBusyAdmin(true);
-    try {
-      const userId = Number(adminVerifyUserId);
-      await apiFetch(`/profile/license/${userId}/verify`, { method: "POST", onAuthError });
-      notify(`Admin: approved licence for user ${userId}`, "ok");
-      await onProfileUpdated();
-    } catch (err) {
-      notify(`Admin verify error: ${err.message}`, "bad");
-    } finally {
-      setBusyAdmin(false);
-    }
-  }
-
-  async function adminRejectLicense() {
-    setBusyAdmin(true);
-    try {
-      const userId = Number(adminVerifyUserId);
-      await apiFetch(`/profile/license/${userId}/reject`, {
-        method: "POST",
-        onAuthError,
-        body: JSON.stringify({ reason: adminRejectReason || null }),
-      });
-      notify(`Admin: rejected licence for user ${userId}`, "ok");
-      setAdminRejectReason("");
-      await onProfileUpdated();
-    } catch (err) {
-      notify(`Admin reject error: ${err.message}`, "bad");
-    } finally {
-      setBusyAdmin(false);
     }
   }
 
@@ -662,38 +626,6 @@ export default function ProfilePage({
           </Button>
         </form>}
 
-        {/* Admin panel */}
-        {isAdmin && (
-          <>
-            <div className="divider" />
-            <div className="form">
-              <div className="tiny muted" style={{ marginBottom: 8 }}>
-                Admin: manually approve or reject a user's licence
-              </div>
-              <Field
-                label="User ID"
-                type="number"
-                min="1"
-                value={adminVerifyUserId}
-                onChange={(e) => setAdminVerifyUserId(e.target.value)}
-              />
-              <Field
-                label="Rejection reason (optional)"
-                value={adminRejectReason}
-                onChange={(e) => setAdminRejectReason(e.target.value)}
-                placeholder="e.g. Photo too blurry"
-              />
-              <div style={{ display: "flex", gap: 8 }}>
-                <Button onClick={adminVerifyLicense} loading={busyAdmin}>
-                  Approve
-                </Button>
-                <Button variant="secondary" onClick={adminRejectLicense} loading={busyAdmin}>
-                  Reject
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
 
         {/* Payout section */}
         <div className="divider" />
