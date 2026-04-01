@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
-import { Field, TextAreaField } from "../components/ui/Field";
+import { Field, SelectField, TextAreaField } from "../components/ui/Field";
 import { apiFetch, apiFetchForm, validatePassword } from "../lib/api";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -75,6 +75,57 @@ function PhotoUploadField({ label, preview, onFile }) {
     </div>
   );
 }
+
+// all European countries as { value, label } pairs for the issuing country dropdown
+const EUROPEAN_COUNTRIES = [
+  { value: "", label: "Select country…" },
+  { value: "AL", label: "Albania" },
+  { value: "AD", label: "Andorra" },
+  { value: "AT", label: "Austria" },
+  { value: "BY", label: "Belarus" },
+  { value: "BE", label: "Belgium" },
+  { value: "BA", label: "Bosnia and Herzegovina" },
+  { value: "BG", label: "Bulgaria" },
+  { value: "HR", label: "Croatia" },
+  { value: "CY", label: "Cyprus" },
+  { value: "CZ", label: "Czech Republic" },
+  { value: "DK", label: "Denmark" },
+  { value: "EE", label: "Estonia" },
+  { value: "FI", label: "Finland" },
+  { value: "FR", label: "France" },
+  { value: "DE", label: "Germany" },
+  { value: "GR", label: "Greece" },
+  { value: "HU", label: "Hungary" },
+  { value: "IS", label: "Iceland" },
+  { value: "IE", label: "Ireland" },
+  { value: "IT", label: "Italy" },
+  { value: "XK", label: "Kosovo" },
+  { value: "LV", label: "Latvia" },
+  { value: "LI", label: "Liechtenstein" },
+  { value: "LT", label: "Lithuania" },
+  { value: "LU", label: "Luxembourg" },
+  { value: "MT", label: "Malta" },
+  { value: "MD", label: "Moldova" },
+  { value: "MC", label: "Monaco" },
+  { value: "ME", label: "Montenegro" },
+  { value: "NL", label: "Netherlands" },
+  { value: "MK", label: "North Macedonia" },
+  { value: "NO", label: "Norway" },
+  { value: "PL", label: "Poland" },
+  { value: "PT", label: "Portugal" },
+  { value: "RO", label: "Romania" },
+  { value: "RU", label: "Russia" },
+  { value: "SM", label: "San Marino" },
+  { value: "RS", label: "Serbia" },
+  { value: "SK", label: "Slovakia" },
+  { value: "SI", label: "Slovenia" },
+  { value: "ES", label: "Spain" },
+  { value: "SE", label: "Sweden" },
+  { value: "CH", label: "Switzerland" },
+  { value: "UA", label: "Ukraine" },
+  { value: "GB", label: "United Kingdom" },
+  { value: "VA", label: "Vatican City" },
+];
 
 // ─── main component ──────────────────────────────────────────────────────────
 
@@ -590,11 +641,11 @@ export default function ProfilePage({
             onChange={(e) => setLicenseNumber(e.target.value)}
             placeholder="UK-1234567"
           />
-          <Field
+          <SelectField
             label="Issuing country"
             value={issuingCountry}
             onChange={(e) => setIssuingCountry(e.target.value)}
-            placeholder="UK"
+            options={EUROPEAN_COUNTRIES}
           />
           <Field
             label="Expiry date"
