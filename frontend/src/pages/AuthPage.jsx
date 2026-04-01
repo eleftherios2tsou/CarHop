@@ -3,7 +3,7 @@ import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import { Field } from "../components/ui/Field";
-import { apiFetch } from "../lib/api";
+import { apiFetch, validatePassword } from "../lib/api";
 
 export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate, resetToken }) {
   const [authMode, setAuthMode] = useState("register");
@@ -29,6 +29,9 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
   const [busyResend, setBusyResend] = useState(false);
   const [resendEmail, setResendEmail] = useState("");
 
+  // Confirm password state — used on registration only
+  const [confirmPassword, setConfirmPassword] = useState("");
+
   // If a reset token arrives via URL param, switch to reset mode
   useEffect(() => {
     if (resetToken) {
@@ -43,6 +46,12 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
       if (authMode === "register") {
         if (!dob) {
           notify("Please enter your date of birth.", "bad");
+          return;
+        }
+        const pwErr = validatePassword(password);
+        if (pwErr) { notify(pwErr, "bad"); return; }
+        if (password !== confirmPassword) {
+          notify("Passwords do not match.", "bad");
           return;
         }
         await apiFetch("/auth/register", {
@@ -91,6 +100,8 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
 
   async function handleReset(e) {
     e.preventDefault();
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) { notify(pwErr, "bad"); return; }
     setBusyReset(true);
     try {
       await apiFetch("/auth/reset-password", {
@@ -276,6 +287,13 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
             />
             {authMode === "register" && (
               <>
+                <Field
+                  label="Confirm password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="repeat password"
+                />
                 <Field
                   label="Full name"
                   value={fullName}

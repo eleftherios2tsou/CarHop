@@ -37,6 +37,10 @@ class ProfileUpdateIn(BaseModel):
         return v
 
 
+class DeleteAccountIn(BaseModel):
+    password: str  # the user's current password — we verify it before deleting
+
+
 class PublicProfileOut(BaseModel):
     id: int
     full_name: str

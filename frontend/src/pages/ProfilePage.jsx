@@ -3,7 +3,7 @@ import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import { Field, TextAreaField } from "../components/ui/Field";
-import { apiFetch, apiFetchForm } from "../lib/api";
+import { apiFetch, apiFetchForm, validatePassword } from "../lib/api";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -86,6 +86,7 @@ export default function ProfilePage({
   notify,
   onAuthError,
   onProfileUpdated,
+  onAccountDeleted,
 }) {
   const [licenseNumber, setLicenseNumber]     = useState("");
   const [issuingCountry, setIssuingCountry]   = useState("");
@@ -102,11 +103,14 @@ export default function ProfilePage({
   const [busyPayoutConnect, setBusyPayoutConnect] = useState(false);
   const [busyPayoutRefresh, setBusyPayoutRefresh] = useState(false);
   const [busyDelete, setBusyDelete] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
   const [busyExport, setBusyExport] = useState(false);
 
   // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [busyChangePassword, setBusyChangePassword] = useState(false);
 
   // Avatar state
@@ -266,6 +270,12 @@ export default function ProfilePage({
 
   async function handleChangePassword(e) {
     e.preventDefault();
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) { notify(pwErr, "bad"); return; }
+    if (newPassword !== confirmNewPassword) {
+      notify("New passwords do not match.", "bad");
+      return;
+    }
     setBusyChangePassword(true);
     try {
       await apiFetch("/profile/change-password", {
@@ -276,6 +286,7 @@ export default function ProfilePage({
       notify("Password changed successfully.", "ok");
       setCurrentPassword("");
       setNewPassword("");
+      setConfirmNewPassword("");
     } catch (err) {
       notify(`Change password error: ${err.message}`, "bad");
     } finally {
@@ -284,18 +295,21 @@ export default function ProfilePage({
   }
 
   async function handleDeleteAccount() {
-    if (!window.confirm(
-      "This will permanently delete your account and anonymise all personal data.\n\nThis action cannot be undone. Proceed?"
-    )) return;
     setBusyDelete(true);
     try {
-      await apiFetch("/profile/me", { method: "DELETE", onAuthError });
-      notify("Account deleted.", "ok");
-      onProfileUpdated?.();
+      await apiFetch("/profile/me", {
+        method: "DELETE",
+        onAuthError,
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      notify("Account deleted successfully.", "ok");
+      onAccountDeleted?.();
     } catch (err) {
       notify(`Error: ${err.message}`, "bad");
     } finally {
       setBusyDelete(false);
+      setDeletePassword("");
+      setShowDeleteConfirm(false);
     }
   }
 
@@ -683,10 +697,17 @@ export default function ProfilePage({
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="new password"
               />
+              <Field
+                label="Confirm new password"
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                placeholder="repeat new password"
+              />
               <Button
                 type="submit"
                 loading={busyChangePassword}
-                disabled={busyChangePassword || !currentPassword || !newPassword}
+                disabled={busyChangePassword || !currentPassword || !newPassword || !confirmNewPassword}
               >
                 Update Password
               </Button>
@@ -705,12 +726,41 @@ export default function ProfilePage({
             <div className="divider" style={{ margin: "16px 0" }} />
 
             <div className="sectionTitle" style={{ color: "var(--danger)" }}>Danger Zone</div>
-            <div className="tiny muted" style={{ marginBottom: 4 }}>
+            <div className="tiny muted" style={{ marginBottom: 8 }}>
               Permanently delete your account and anonymise all personal data. This cannot be undone.
             </div>
-            <Button variant="danger" onClick={handleDeleteAccount} disabled={busyDelete}>
-              {busyDelete ? "Deleting…" : "Delete My Account"}
-            </Button>
+            {showDeleteConfirm ? (
+              <>
+                <Field
+                  label="Enter your password to confirm"
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="your current password"
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button
+                    variant="danger"
+                    onClick={handleDeleteAccount}
+                    loading={busyDelete}
+                    disabled={busyDelete || !deletePassword}
+                  >
+                    Confirm Delete
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => { setShowDeleteConfirm(false); setDeletePassword(""); }}
+                    disabled={busyDelete}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
+                Delete My Account
+              </Button>
+            )}
           </div>
         </Card>
       )}

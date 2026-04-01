@@ -22,7 +22,7 @@ from app.models.review import Review
 from app.auth import hash_password, verify_password
 from app.schemas.auth import ChangePasswordIn
 from app.schemas.license import LicenseOut, AdminRejectIn
-from app.schemas.profile import ProfileOut, ProfileUpdateIn, PublicProfileOut
+from app.schemas.profile import ProfileOut, ProfileUpdateIn, PublicProfileOut, DeleteAccountIn
 from app.services.verification import run_verification_checks
 
 router = APIRouter(prefix="/profile", tags=["profile"])
@@ -482,11 +482,16 @@ def export_my_data(
 
 @router.delete("/me", dependencies=[Depends(csrf_protect)])
 def delete_my_account(
+    payload: DeleteAccountIn,
     response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
     """GDPR right to erasure — anonymises the account and clears the session."""
+    # verify the supplied password before doing anything destructive
+    if not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+
     now = datetime.now(timezone.utc)
 
     # Disconnect Stripe Connect account if onboarded (best-effort)

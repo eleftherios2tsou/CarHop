@@ -17,6 +17,22 @@ export function getCsrfToken() {
   return getCookie("csrf_token");
 }
 
+// checks that a password meets the strength rules — returns an error string or null if it's valid
+// rules: 8–24 chars, at least one lowercase, one uppercase, one number, one special character
+export function validatePassword(password) {
+  if (password.length < 8 || password.length > 24)
+    return "Password must be 8–24 characters.";
+  if (!/[a-z]/.test(password))
+    return "Password must include at least one lowercase letter.";
+  if (!/[A-Z]/.test(password))
+    return "Password must include at least one uppercase letter.";
+  if (!/\d/.test(password))
+    return "Password must include at least one number.";
+  if (!/[^a-zA-Z0-9]/.test(password))
+    return "Password must include at least one special character.";
+  return null; // null means the password is fine
+}
+
 // this is the main function used throughout the app to call backend endpoints
 // it handles JSON headers, CSRF tokens, auth cookie refresh, and error messages automatically
 export async function apiFetch(path, { onAuthError, _retried, ...opts } = {}) {

@@ -307,6 +307,7 @@ export default function App() {
             notify={notify}
             onAuthError={onAuthError}
             onProfileUpdated={fetchProfile} // ProfilePage calls this after any change so data stays fresh
+            onAccountDeleted={() => { setProfile(null); setActive("Marketplace"); }}
           />
         )}
 
