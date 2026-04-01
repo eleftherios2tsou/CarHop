@@ -331,6 +331,12 @@ export default function ProfilePage({
   }
 
   const licStatus = profile?.license_status ?? null;
+  const [licenseExpanded, setLicenseExpanded] = useState(licStatus !== "approved");
+
+  // Collapse automatically once the licence becomes approved
+  useEffect(() => {
+    if (licStatus === "approved") setLicenseExpanded(false);
+  }, [licStatus]);
 
   return (
     <div className="twoCol">
@@ -481,13 +487,23 @@ export default function ProfilePage({
       {/* ── Driver licence ────────────────────────────────────────────── */}
       <Card
         title="Driver Licence"
-        subtitle="Upload your licence photo and a selfie for automated verification."
+        subtitle={licenseExpanded ? "Upload your licence photo and a selfie for automated verification." : undefined}
+        right={
+          licStatus === "approved" && (
+            <button
+              onClick={() => setLicenseExpanded(v => !v)}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-faint)" }}
+            >
+              {licenseExpanded ? "Collapse ▲" : "Show details ▼"}
+            </button>
+          )
+        }
       >
         {/* Status banner */}
         {licStatus && licStatus !== "pending" && (
           <div
             style={{
-              marginBottom: 16,
+              marginBottom: licenseExpanded ? 16 : 0,
               padding: "10px 14px",
               borderRadius: 8,
               background:
@@ -514,7 +530,7 @@ export default function ProfilePage({
           </div>
         )}
 
-        <form className="form" onSubmit={submitLicense}>
+        {licenseExpanded && <form className="form" onSubmit={submitLicense}>
           <PhotoUploadField
             label="Driving licence photo"
             preview={licensePhotoPreview}
@@ -550,7 +566,7 @@ export default function ProfilePage({
           >
             {licStatus ? "Re-submit Documents" : "Submit Documents"}
           </Button>
-        </form>
+        </form>}
 
         {/* Admin panel */}
         {isAdmin && (
@@ -587,25 +603,35 @@ export default function ProfilePage({
 
         {/* Payout section */}
         <div className="divider" />
-        <div className="form">
-          <div className="tiny muted" style={{ marginBottom: 8 }}>
-            Owner payouts: connect Stripe account to receive released escrow funds.
+        {profile?.payout_connected ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: "var(--ok-bg, #f0fdf4)" }}>
+            <span className="tiny"><Badge tone="ok">Payout Connected</Badge></span>
+            <button
+              onClick={() => refreshPayoutStatus(true)}
+              disabled={busyPayoutRefresh}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-faint)" }}
+            >
+              {busyPayoutRefresh ? "Refreshing…" : "Refresh ↺"}
+            </button>
           </div>
-          <Button onClick={startPayoutOnboarding} disabled={!isAuthed} loading={busyPayoutConnect}>
-            Connect Payout Account
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => refreshPayoutStatus(true)}
-            disabled={!isAuthed}
-            loading={busyPayoutRefresh}
-          >
-            Refresh Payout Status
-          </Button>
-          {profile?.payout_account_id ? (
-            <div className="tiny muted">Account: {profile.payout_account_id}</div>
-          ) : null}
-        </div>
+        ) : (
+          <div className="form">
+            <div className="tiny muted" style={{ marginBottom: 8 }}>
+              Owner payouts: connect Stripe account to receive released escrow funds.
+            </div>
+            <Button onClick={startPayoutOnboarding} disabled={!isAuthed} loading={busyPayoutConnect}>
+              Connect Payout Account
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => refreshPayoutStatus(true)}
+              disabled={!isAuthed}
+              loading={busyPayoutRefresh}
+            >
+              Refresh Payout Status
+            </Button>
+          </div>
+        )}
       </Card>
 
       {/* ── Account / GDPR ────────────────────────────────────────────── */}

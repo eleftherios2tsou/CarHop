@@ -1,4 +1,5 @@
 # backend/app/routers/auth.py
+# handles all authentication endpoints: register, login, logout, email verification, and password reset
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
@@ -30,40 +31,49 @@ from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# token lifetimes — access tokens are short-lived, refresh tokens last longer
 ACCESS_MAX_AGE = 60 * 60             # 1 hour
 REFRESH_MAX_AGE = 60 * 60 * 24 * 7   # 7 days
 
 
 def age_in_years(dob: date) -> int:
+    # calculate the user's age properly, accounting for whether their birthday has passed this year
     today = date.today()
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
 def _client_ip(request: Request) -> str:
+    # try to get the real IP from the X-Forwarded-For header (set by proxies/load balancers)
+    # fall back to the direct connection IP if the header isn't present
     xff = request.headers.get("x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
+        return xff.split(",")[0].strip()  # take the first IP — that's the original client
     return request.client.host if request.client and request.client.host else "unknown"
 
 
 @router.post("/register")
 def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
+    # rate limit registrations by IP to stop bots creating hundreds of accounts
     check_rate_limit(scope="auth.register", identifier=_client_ip(request), limit=8, window_seconds=600)
 
     if payload.date_of_birth > date.today():
         raise HTTPException(status_code=400, detail="Invalid date of birth")
 
+    # our insurance requires drivers to be at least 21 years old
     if age_in_years(payload.date_of_birth) < 21:
         raise HTTPException(status_code=400, detail="You must be at least 21 years old")
 
-    # bcrypt truncates at 72 bytes; reject longer passwords to avoid surprises
+    # bcrypt silently truncates passwords longer than 72 bytes, which could cause login mismatches
+    # we reject them upfront instead to make the behaviour explicit
     if len(payload.password.encode("utf-8")) > 72:
         raise HTTPException(status_code=400, detail="Password too long (max 72 bytes)")
 
+    # check if the email is already in use before trying to insert
     existing = db.query(User).filter_by(email=payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # create the user record with a hashed password (never store plaintext!)
     user = User(
         email=payload.email,
         password_hash=hash_password(payload.password),
@@ -74,8 +84,9 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
 
     db.add(user)
     db.commit()
-    db.refresh(user)
+    db.refresh(user)  # refresh to get the auto-generated ID back
 
+    # generate a 24-hour email verification token and send it to the user
     token = EmailVerificationToken(
         user_id=user.id,
         token=str(uuid4()),
@@ -84,6 +95,7 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
     db.add(token)
     db.commit()
 
+    # this sends the verification email — in tests we read the token from the DB directly
     send_verification_email(user.email, token.token, settings)
 
     return {"message": "Registered. Please check your email to verify your account."}
@@ -91,14 +103,17 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
 
 @router.post("/verify-email/{token}")
 def verify_email(token: str, request: Request, db: Session = Depends(get_db)):
+    # rate limit verification attempts to prevent brute-forcing tokens
     check_rate_limit(scope="auth.verify_email", identifier=_client_ip(request), limit=20, window_seconds=600)
 
+    # look up the token record — it's invalid if it doesn't exist
     record = db.query(EmailVerificationToken).filter_by(token=token).first()
     if not record:
         raise HTTPException(status_code=400, detail="Invalid token")
 
+    # check if the token has expired (tokens are only valid for 24 hours after registration)
     if record.expires_at and record.expires_at < datetime.now(timezone.utc):
-        db.delete(record)
+        db.delete(record)  # clean up expired tokens from the DB
         db.commit()
         raise HTTPException(status_code=400, detail="Verification link has expired. Please request a new one.")
 
@@ -106,6 +121,7 @@ def verify_email(token: str, request: Request, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid token")
 
+    # mark the user as verified and delete the used token so it can't be used again
     user.email_verified = True
     db.delete(record)
     db.commit()
@@ -115,17 +131,23 @@ def verify_email(token: str, request: Request, db: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
+    # rate limit login attempts to slow down brute force attacks
     check_rate_limit(scope="auth.login", identifier=_client_ip(request), limit=12, window_seconds=600)
 
+    # check credentials — we give the same error for wrong email OR wrong password
+    # this prevents attackers from figuring out which emails are registered
     user = db.query(User).filter_by(email=payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # block login if the user hasn't verified their email yet
     if not user.email_verified:
         raise HTTPException(status_code=403, detail="Email not verified")
 
+    # mint a short-lived access token (used in the Authorization cookie)
     access = create_access_token(sub=str(user.id))
 
+    # create a refresh token and store its hash in the DB (we never store the raw token)
     refresh_raw = new_refresh_token()
     refresh_hash = hash_refresh_token(refresh_raw)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=REFRESH_MAX_AGE)
@@ -140,8 +162,10 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
     )
     db.commit()
 
+    # generate a CSRF token to attach to the response — the frontend must echo this back on mutations
     csrf = new_csrf_token()
 
+    # note: we return {"message":"Logged in"} not the user object — the frontend fetches /profile/me separately
     response = Response(content='{"message":"Logged in"}', media_type="application/json")
     set_auth_cookies(
         response,
@@ -162,13 +186,16 @@ def refresh(request: Request, db: Session = Depends(get_db)):
     """
     check_rate_limit(scope="auth.refresh", identifier=_client_ip(request), limit=60, window_seconds=600)
 
+    # the refresh token comes in as a cookie — reject immediately if it's missing
     refresh_raw = request.cookies.get(REFRESH_COOKIE)
     if not refresh_raw:
         raise HTTPException(status_code=401, detail="Missing refresh token")
 
+    # hash the raw token and look it up in the DB — we only store hashes, not raw tokens
     refresh_hash = hash_refresh_token(refresh_raw)
     now = datetime.now(timezone.utc)
 
+    # find the token record — it must exist, not be revoked, and not be expired
     token_row = (
         db.query(RefreshToken)
         .filter(
@@ -182,11 +209,13 @@ def refresh(request: Request, db: Session = Depends(get_db)):
     if not token_row:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
+    # make sure the user account is still active before issuing new tokens
     user = db.get(User, token_row.user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Inactive user")
 
-    # rotate refresh token
+    # rotate the refresh token — revoke the old one and issue a new one
+    # this means a stolen refresh token can only be used once before it's invalidated
     token_row.revoked = True
 
     new_refresh_raw = new_refresh_token()
@@ -202,7 +231,7 @@ def refresh(request: Request, db: Session = Depends(get_db)):
         )
     )
 
-    # mint new access + csrf
+    # mint new access + csrf tokens alongside the new refresh token
     new_access = create_access_token(sub=str(user.id))
     new_csrf = new_csrf_token()
 
@@ -222,10 +251,11 @@ def refresh(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
+    # strict rate limit — password reset emails should not be spammable
     check_rate_limit(scope="auth.forgot_password", identifier=_client_ip(request), limit=5, window_seconds=600)
     user = db.query(User).filter_by(email=payload.email).first()
     if user and user.email_verified:
-        # Delete any existing reset token for this user first
+        # delete any existing reset token for this user before creating a new one
         db.query(PasswordResetToken).filter_by(user_id=user.id).delete()
         token = new_csrf_token()  # UUID4 hex — same helper, different purpose
         expires = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -233,38 +263,43 @@ def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = D
         db.commit()
         reset_url = f"{settings.frontend_base_url}/?reset={token}"
         notify_password_reset(user.email, reset_url)
-    # Always 200 — prevents email enumeration
+    # always return 200 regardless of whether the email exists — prevents email enumeration attacks
     return {"message": "If an account with that email exists, a reset link has been sent."}
 
 
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    # look up the reset token — it's invalid if it doesn't exist in the DB
     rec = db.query(PasswordResetToken).filter_by(token=payload.token).first()
     if not rec:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     if rec.expires_at < datetime.now(timezone.utc):
-        db.delete(rec)
+        db.delete(rec)  # clean up the expired record
         db.commit()
         raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+    # same 72-byte check as registration — bcrypt will silently truncate otherwise
     if len(payload.new_password.encode("utf-8")) > 72:
         raise HTTPException(status_code=400, detail="Password too long (max 72 bytes)")
     user = db.get(User, rec.user_id)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid reset token")
     user.password_hash = hash_password(payload.new_password)
-    db.delete(rec)
+    db.delete(rec)  # consume the token so it can't be used again
     db.commit()
     return {"message": "Password updated. You can now log in."}
 
 
 @router.post("/resend-verification")
 def resend_verification(payload: EmailResendIn, request: Request, db: Session = Depends(get_db)):
+    # very tight rate limit — resending emails should not be abusable
     check_rate_limit(scope="auth.resend_verification", identifier=_client_ip(request), limit=3, window_seconds=600)
     user = db.query(User).filter_by(email=payload.email).first()
     if not user:
+        # return a vague message to prevent exposing which emails are registered
         return {"message": "If that email is registered and unverified, a link has been sent."}
     if user.email_verified:
         raise HTTPException(status_code=400, detail="Email is already verified.")
+    # delete the old token and create a fresh one with a new 24-hour expiry
     db.query(EmailVerificationToken).filter_by(user_id=user.id).delete()
     new_token = str(uuid4())
     db.add(EmailVerificationToken(
@@ -286,14 +321,16 @@ def logout(
     """
     Logout clears cookies and revokes the current refresh token (if present).
     """
+    # revoke the refresh token in the DB so it can't be used to get new access tokens
     refresh_raw = request.cookies.get(REFRESH_COOKIE)
     if refresh_raw:
         refresh_hash = hash_refresh_token(refresh_raw)
         row = db.query(RefreshToken).filter(RefreshToken.token_hash == refresh_hash).first()
         if row and row.user_id == current_user.id:
-            row.revoked = True
+            row.revoked = True  # mark as revoked instead of deleting so we have an audit trail
             db.commit()
 
+    # clear all auth cookies from the browser and return a success message
     response = Response(content='{"message":"Logged out"}', media_type="application/json")
     clear_auth_cookies(response)
     return response

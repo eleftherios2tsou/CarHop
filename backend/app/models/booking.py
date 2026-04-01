@@ -1,4 +1,5 @@
-#backend/app/models/booking.py
+# backend/app/models/booking.py
+# SQLAlchemy model for booking requests — one row per booking a renter makes
 from datetime import date
 
 from sqlalchemy import Date, ForeignKey, String, Index
@@ -11,9 +12,11 @@ class BookingRequest(Base):
     __tablename__ = "bookings"
 
     __table_args__ = (
-        # Marketplace/approval overlap checks
+        # composite index on car_id + status + dates — used by the overlap check query
+        # when approving a booking we query "are there any APPROVED bookings for this car in this date range?"
+        # this index makes that query fast instead of doing a full table scan
         Index("ix_bookings_car_status_dates", "car_id", "status", "start_date", "end_date"),
-        # Renter dashboard: fast "my bookings" queries
+        # separate index for renter lookups — used by the "My Bookings" page query
         Index("ix_bookings_renter_id", "renter_id"),
     )
 
@@ -25,4 +28,5 @@ class BookingRequest(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
+    # possible statuses: PENDING → APPROVED/REJECTED → COMPLETED/CANCELLED
     status: Mapped[str] = mapped_column(String, default="PENDING")

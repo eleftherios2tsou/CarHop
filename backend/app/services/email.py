@@ -1,10 +1,7 @@
 # backend/app/services/email.py
-"""
-Email service — sends transactional emails via SMTP.
-
-If SMTP_HOST / SMTP_USER are not set, the function falls back to printing
-the verification URL to stdout so development still works without credentials.
-"""
+# sends transactional emails via SMTP (currently Gmail)
+# if SMTP is not configured, we fall back to printing the link to stdout so dev still works
+# without needing real email credentials
 
 import logging
 import smtplib
@@ -16,21 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 def send_verification_email(to_email: str, token: str, settings) -> None:
-    """
-    Send an email-verification message to *to_email*.
-
-    The email contains a clickable link:
-        {FRONTEND_BASE_URL}/?verify={token}
-
-    The App.jsx picks up the ?verify= query param on load and automatically
-    calls POST /auth/verify-email/{token}, so the user just has to click once.
-
-    Falls back to stdout logging when SMTP is not configured (dev mode).
-    """
+    # build the verification URL — the App.jsx picks up the ?verify= query param on load
+    # and automatically calls the verify endpoint, so the user just has to click the link once
     verify_url = f"{settings.frontend_base_url}/?verify={token}"
 
     if not settings.smtp_host or not settings.smtp_user:
-        # Dev fallback — token is visible in Docker logs
+        # dev fallback — log the URL so you can verify manually without sending a real email
+        # the token is also visible in the Docker API logs if you need it from there
         logger.info("[DEV] Verification email skipped (SMTP not configured).")
         logger.info("[DEV] Verification URL for %s: %s", to_email, verify_url)
         print(f"\n[DEV] Verify email link for {to_email}:\n  {verify_url}\n", flush=True)
@@ -38,6 +27,7 @@ def send_verification_email(to_email: str, token: str, settings) -> None:
 
     subject = "Verify your CarHop account"
 
+    # plain text version for email clients that don't support HTML
     plain = (
         f"Welcome to CarHop!\n\n"
         f"Click the link below to verify your email address:\n\n"
@@ -45,6 +35,7 @@ def send_verification_email(to_email: str, token: str, settings) -> None:
         f"If you did not create an account, you can safely ignore this message."
     )
 
+    # HTML version — inline styles are used because many email clients strip <style> tags
     html = f"""\
 <!DOCTYPE html>
 <html>
@@ -68,6 +59,8 @@ def send_verification_email(to_email: str, token: str, settings) -> None:
 </body>
 </html>"""
 
+    # build a multipart message with both plain text and HTML parts
+    # email clients will pick whichever format they support best
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.smtp_from
@@ -76,6 +69,7 @@ def send_verification_email(to_email: str, token: str, settings) -> None:
     msg.attach(MIMEText(html, "html"))
 
     try:
+        # connect with STARTTLS (port 587) — upgrades the connection to TLS after connecting
         context = ssl.create_default_context()
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
             server.ehlo()
@@ -84,5 +78,6 @@ def send_verification_email(to_email: str, token: str, settings) -> None:
             server.sendmail(settings.smtp_from, to_email, msg.as_string())
         logger.info("Verification email sent to %s", to_email)
     except Exception as exc:
-        # Never let an email failure break registration
+        # log the error but never let an email failure break the registration flow
+        # the user can request a resend from the verify email page
         logger.error("Failed to send verification email to %s: %s", to_email, exc)

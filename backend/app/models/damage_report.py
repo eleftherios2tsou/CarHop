@@ -11,7 +11,9 @@ from app.database import Base
 class DamageReport(Base):
     __tablename__ = "damage_reports"
     __table_args__ = (
+        # unique index — only one damage report is allowed per booking
         Index("ix_damage_reports_booking_id", "booking_id", unique=True),
+        # index on status so the admin "open reports" query is fast
         Index("ix_damage_reports_status", "status"),
     )
 
@@ -26,8 +28,10 @@ class DamageReport(Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     estimated_cost_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # JSON array of storage keys, stored as text, e.g. '["damages/1/abc.jpg"]'
+    # JSON array of storage keys stored as plain text, e.g. '["damages/1/abc.jpg"]'
+    # we parse this back to a list when building the API response
     photo_keys: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # possible statuses: OPEN → UNDER_REVIEW → RESOLVED or DISMISSED
     status: Mapped[str] = mapped_column(
         String, nullable=False, default="OPEN", server_default="OPEN"
     )

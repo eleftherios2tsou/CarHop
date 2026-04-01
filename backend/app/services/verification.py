@@ -1,12 +1,12 @@
 # backend/app/services/verification.py
-"""
-Real image-based verification checks used by the licence submission pipeline.
-
-Checks performed:
-  1. Pillow — image quality: minimum resolution, not blank, not too dark
-  2. Pillow — licence orientation: card must be landscape (wider than tall)
-  3. OpenCV Haar cascade — selfie must contain a detectable human face
-"""
+# image-based verification checks used by the licence submission pipeline
+# we run these automatically when a user uploads their documents — no human review needed
+# for borderline cases the pipeline sets status to "manual_review" instead of rejecting outright
+#
+# Checks performed:
+#   1. Pillow — image quality: minimum resolution, not blank, not too dark
+#   2. Pillow — licence orientation: card must be landscape (wider than tall)
+#   3. OpenCV Haar cascade — selfie must contain a detectable human face
 
 import io
 
@@ -16,9 +16,10 @@ from PIL import Image, UnidentifiedImageError
 
 
 def _load_pillow(image_bytes: bytes, label: str) -> tuple[Image.Image | None, str | None]:
-    """Open an image from bytes, return (img, None) or (None, error_message)."""
+    # try to open the image with Pillow — returns (image, None) on success or (None, error) on failure
+    # we call verify() first to catch truncated/corrupt files, then re-open for actual use
+    # (verify() consumes the stream so we need a fresh BytesIO for the second open)
     try:
-        # verify() detects truncated / corrupt files; re-open afterwards for use
         Image.open(io.BytesIO(image_bytes)).verify()
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         return img, None
@@ -26,15 +27,9 @@ def _load_pillow(image_bytes: bytes, label: str) -> tuple[Image.Image | None, st
         return None, f"{label}: could not read image — please upload a valid photo (JPEG or PNG)"
 
 
-
 def check_image_quality(image_bytes: bytes, label: str) -> tuple[bool, str]:
-    """
-    Reject images that are:
-      - Unreadable / corrupt
-      - Too small (below 200 × 100 px)
-      - Nearly black (average brightness < 20)
-      - Nearly white / blank (average brightness > 235)
-    """
+    # reject images that are unreadable, too small, too dark, or completely blank
+    # these checks catch common upload mistakes (e.g. wrong file, camera covered, overexposed)
     img, err = _load_pillow(image_bytes, label)
     if err:
         return False, err
@@ -47,6 +42,7 @@ def check_image_quality(image_bytes: bytes, label: str) -> tuple[bool, str]:
             "Please use a higher-quality photo.",
         )
 
+    # convert to grayscale and compute average pixel brightness (0 = black, 255 = white)
     gray = img.convert("L")
     pixels = list(gray.getdata())
     avg = sum(pixels) / len(pixels)
@@ -66,10 +62,8 @@ def check_image_quality(image_bytes: bytes, label: str) -> tuple[bool, str]:
 
 
 def check_licence_orientation(image_bytes: bytes) -> tuple[bool, str]:
-    """
-    A physical driving licence is always wider than tall (landscape).
-    Reject portrait-orientation licence photos.
-    """
+    # a real driving licence card is always wider than it is tall (landscape orientation)
+    # if the photo is portrait it's almost certainly held the wrong way or it's not a licence
     img, err = _load_pillow(image_bytes, "Licence photo")
     if err:
         return False, err
@@ -86,24 +80,23 @@ def check_licence_orientation(image_bytes: bytes) -> tuple[bool, str]:
 
 
 def detect_face_in_selfie(image_bytes: bytes) -> tuple[bool, str]:
-    """
-    Use OpenCV's pre-trained Haar cascade to detect at least one frontal face
-    in the selfie image.
-    """
+    # use OpenCV's pre-trained Haar cascade classifier to detect at least one frontal face
+    # this is a fast, offline check that doesn't require any external API calls
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         return False, "Could not decode selfie image — please upload a valid photo."
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # the cascade XML file is bundled with OpenCV — no manual download needed
     face_cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
     )
     faces = face_cascade.detectMultiScale(
         gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(30, 30),
+        scaleFactor=1.1,   # how much the image is scaled down at each level of the pyramid
+        minNeighbors=5,    # how many neighbours a candidate rectangle needs to be retained
+        minSize=(30, 30),  # minimum face size in pixels — filters out noise
     )
 
     if len(faces) == 0:
@@ -116,15 +109,12 @@ def detect_face_in_selfie(image_bytes: bytes) -> tuple[bool, str]:
     return True, ""
 
 
-
 def run_verification_checks(
     photo_bytes: bytes,
     selfie_bytes: bytes,
 ) -> tuple[bool, str | None]:
-    """
-    Run all checks in order.  Returns (passed: bool, rejection_reason: str | None).
-    The first failing check short-circuits the rest.
-    """
+    # run all checks in sequence — the first failure short-circuits the rest
+    # returns (True, None) if everything passes, or (False, reason) if any check fails
     checks = [
         lambda: check_image_quality(photo_bytes, "Licence photo"),
         lambda: check_licence_orientation(photo_bytes),
@@ -135,6 +125,6 @@ def run_verification_checks(
     for check in checks:
         ok, reason = check()
         if not ok:
-            return False, reason
+            return False, reason  # return the first failure reason to show to the user
 
-    return True, None
+    return True, None  # all checks passed
