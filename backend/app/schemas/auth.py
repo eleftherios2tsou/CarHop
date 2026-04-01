@@ -28,11 +28,19 @@ class RegisterIn(BaseModel):
     full_name: str
     date_of_birth: date
     terms_accepted: bool = False
+    account_type: str = "RENTER"  # "RENTER" or "OWNER"
 
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:
         return _check_password_strength(v)
+
+    @field_validator("account_type")
+    @classmethod
+    def valid_account_type(cls, v: str) -> str:
+        if v not in ("RENTER", "OWNER"):
+            raise ValueError("account_type must be RENTER or OWNER")
+        return v
 
 
 class LoginIn(BaseModel):

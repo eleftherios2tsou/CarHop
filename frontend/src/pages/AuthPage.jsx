@@ -32,6 +32,9 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
   // Confirm password state — used on registration only
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Account type — chosen during registration
+  const [accountType, setAccountType] = useState("RENTER");
+
   // If a reset token arrives via URL param, switch to reset mode
   useEffect(() => {
     if (resetToken) {
@@ -62,6 +65,7 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
             full_name: fullName,
             date_of_birth: dob,
             terms_accepted: termsAccepted,
+            account_type: accountType,
           }),
         });
         setResendEmail(email);
@@ -272,6 +276,41 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
         ) : (
           /* ── Login / Register form ── */
           <form className="form" onSubmit={handleAuth}>
+            {authMode === "register" && (
+              <div style={{ marginBottom: 8 }}>
+                <div className="fieldLabel" style={{ marginBottom: 8 }}>I want to…</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {[
+                    { value: "RENTER", icon: "🔑", title: "Rent a car", sub: "Browse and book cars from owners" },
+                    { value: "OWNER",  icon: "🚗", title: "List my car", sub: "Rent out my car and earn money" },
+                  ].map(({ value, icon, title, sub }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setAccountType(value)}
+                      style={{
+                        flex: 1,
+                        padding: "14px 10px",
+                        borderRadius: 10,
+                        border: accountType === value
+                          ? "2px solid var(--accent, #0ea5e9)"
+                          : "2px solid var(--line, #e5e7eb)",
+                        background: accountType === value
+                          ? "var(--accent-soft, #e0f2fe)"
+                          : "var(--surface, #fff)",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <div style={{ fontSize: 22, marginBottom: 4 }}>{icon}</div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>{title}</div>
+                      <div className="tiny muted" style={{ marginTop: 2 }}>{sub}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <Field
               label="Email"
               value={email}

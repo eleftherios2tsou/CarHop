@@ -73,6 +73,9 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # map the account type to the internal role — OWNER gets listing rights, RENTER stays as USER
+    role = "OWNER" if payload.account_type == "OWNER" else "USER"
+
     # create the user record with a hashed password (never store plaintext!)
     user = User(
         email=payload.email,
@@ -80,6 +83,7 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
         full_name=payload.full_name,
         date_of_birth=payload.date_of_birth,
         terms_accepted_at=datetime.now(timezone.utc) if payload.terms_accepted else None,
+        role=role,
     )
 
     db.add(user)

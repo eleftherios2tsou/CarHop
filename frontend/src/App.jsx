@@ -49,12 +49,14 @@ export default function App() {
   const gates = useMemo(() => {
     const emailVerified = !!profile?.email_verified;
     const licenseVerified = !!profile?.license_verified;
+    const isOwner = profile?.role === "OWNER" || profile?.role === "ADMIN";
     return {
       emailVerified,
       hasLicense: !!profile?.has_license,
       licenseVerified,
-      canListCars: isAuthed && emailVerified,       // need email verified to list
-      canBook: isAuthed && emailVerified && licenseVerified, // need licence too to book
+      isOwner,
+      canListCars: isAuthed && emailVerified && isOwner, // only owners can list cars
+      canBook: isAuthed && emailVerified && licenseVerified, // need licence to book
     };
   }, [profile, isAuthed]);
 
@@ -81,10 +83,13 @@ export default function App() {
 
     // these pages are only available once the email is verified
     if (profile?.email_verified) {
-      items.push({ key: "List Car", label: "List Car" });
-      items.push({ key: "My Listings", label: "My Listings" });
-      items.push({ key: "Incoming", label: "Incoming Bookings" });
       items.push({ key: "My Bookings", label: "My Bookings" });
+      // listing and incoming bookings are only available to owners
+      if (gates.isOwner) {
+        items.push({ key: "List Car", label: "List Car" });
+        items.push({ key: "My Listings", label: "My Listings" });
+        items.push({ key: "Incoming", label: "Incoming Bookings" });
+      }
     }
 
     // admin panel only appears for users with the ADMIN role
