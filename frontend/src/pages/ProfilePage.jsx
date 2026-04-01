@@ -332,16 +332,45 @@ export default function ProfilePage({
 
   const licStatus = profile?.license_status ?? null;
   const [licenseExpanded, setLicenseExpanded] = useState(licStatus !== "approved");
+  const [profileTab, setProfileTab] = useState("Profile");
 
   // Collapse automatically once the licence becomes approved
   useEffect(() => {
     if (licStatus === "approved") setLicenseExpanded(false);
   }, [licStatus]);
 
+  const tabs = ["Profile", "Driver Licence", "Account"];
+
   return (
-    <div className="twoCol">
+    <div style={{ display: "flex", gap: 0, alignItems: "flex-start", width: "100%" }}>
+
+      {/* ── Sidebar ── */}
+      <div style={{
+        width: 180, flexShrink: 0, display: "flex", flexDirection: "column",
+        borderRight: "1px solid var(--line, #e5e7eb)", paddingTop: 8, alignSelf: "stretch",
+      }}>
+        {tabs.map(tab => (
+          <button
+            key={tab}
+            onClick={() => setProfileTab(tab)}
+            style={{
+              textAlign: "left", padding: "12px 20px", background: "none", border: "none",
+              cursor: "pointer", fontSize: 14, fontWeight: profileTab === tab ? 600 : 400,
+              color: profileTab === tab ? "var(--accent, #0ea5e9)" : "var(--text, #1f2937)",
+              borderRight: profileTab === tab ? "2px solid var(--accent, #0ea5e9)" : "2px solid transparent",
+              transition: "all 0.15s",
+            }}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content panel ── */}
+      <div style={{ flex: 1, minWidth: 0, padding: "0 32px" }}>
+    <div>
       {/* ── Profile overview ─────────────────────────────────────────── */}
-      <Card
+      {profileTab === "Profile" && <Card
         title="Profile"
         right={
           <div className="gates">
@@ -482,10 +511,10 @@ export default function ProfilePage({
             </div>
           </>
         )}
-      </Card>
+      </Card>}
 
       {/* ── Driver licence ────────────────────────────────────────────── */}
-      <Card
+      {profileTab === "Driver Licence" && <Card
         title="Driver Licence"
         subtitle={licenseExpanded ? "Upload your licence photo and a selfie for automated verification." : undefined}
         right={
@@ -632,10 +661,10 @@ export default function ProfilePage({
             </Button>
           </div>
         )}
-      </Card>
+      </Card>}
 
       {/* ── Account / GDPR ────────────────────────────────────────────── */}
-      {isAuthed && (
+      {profileTab === "Account" && isAuthed && (
         <Card title="Account">
           <div className="form">
             <div className="sectionTitle">Change Password</div>
@@ -685,6 +714,8 @@ export default function ProfilePage({
           </div>
         </Card>
       )}
+      </div>{/* end twoCol */}
+      </div>{/* end content panel */}
     </div>
   );
 }

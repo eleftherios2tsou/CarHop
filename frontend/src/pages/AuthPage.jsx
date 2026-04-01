@@ -41,6 +41,10 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
     setBusyAuth(true);
     try {
       if (authMode === "register") {
+        if (!dob) {
+          notify("Please enter your date of birth.", "bad");
+          return;
+        }
         await apiFetch("/auth/register", {
           method: "POST",
           body: JSON.stringify({

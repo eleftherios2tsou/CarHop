@@ -55,8 +55,10 @@ export async function apiFetch(path, { onAuthError, _retried, ...opts } = {}) {
   }
 
   // if we get a 401 and haven't already retried, attempt a token refresh
-  // this happens when the access token has expired but the refresh token is still valid
-  if (res.status === 401 && !_retried) {
+  // only try this when onAuthError is provided — that means the caller is a protected page
+  // where the user should already be logged in. for unauthenticated calls (like login itself)
+  // we skip the refresh and just let the error fall through to the !res.ok block below
+  if (res.status === 401 && !_retried && onAuthError) {
     try {
       const r = await fetch(`${API}/auth/refresh`, {
         method: "POST",
@@ -78,7 +80,7 @@ export async function apiFetch(path, { onAuthError, _retried, ...opts } = {}) {
     const msg =
       (data?.detail &&
         (Array.isArray(data.detail)
-          ? JSON.stringify(data.detail)
+          ? data.detail.map(e => e.msg || JSON.stringify(e)).join(", ")
           : data.detail)) ||
       `Request failed (${res.status})`;
     throw new Error(msg);
@@ -131,7 +133,7 @@ export async function apiFetchForm(path, formData, { onAuthError, _retried } = {
     const msg =
       (data?.detail &&
         (Array.isArray(data.detail)
-          ? JSON.stringify(data.detail)
+          ? data.detail.map(e => e.msg || JSON.stringify(e)).join(", ")
           : data.detail)) ||
       `Request failed (${res.status})`;
     throw new Error(msg);
