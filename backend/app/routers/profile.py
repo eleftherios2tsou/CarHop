@@ -20,7 +20,7 @@ from app.models.payment import Payment
 from app.models.car import CarListing
 from app.models.review import Review
 from app.auth import hash_password, verify_password
-from app.schemas.auth import ChangePasswordIn
+from app.schemas.auth import ChangePasswordIn, Enable2faIn, Disable2faIn
 from app.schemas.license import LicenseOut, AdminRejectIn
 from app.schemas.profile import ProfileOut, ProfileUpdateIn, PublicProfileOut, DeleteAccountIn
 from app.services.verification import run_verification_checks
@@ -129,6 +129,7 @@ def me(
         "payout_account_id": current_user.stripe_account_id,
         "avatar_url": current_user.avatar_url,
         "bio": current_user.bio,
+        "totp_enabled": current_user.totp_enabled,
     }
 
 
@@ -308,6 +309,7 @@ def update_profile(
         "payout_account_id": user.stripe_account_id,
         "avatar_url": user.avatar_url,
         "bio": user.bio,
+        "totp_enabled": user.totp_enabled,
     }
 
 
@@ -524,6 +526,69 @@ def delete_my_account(
     db.commit()
     clear_auth_cookies(response)
     return {"message": "Account deleted."}
+
+
+@router.post("/2fa/send-code", dependencies=[Depends(csrf_protect)])
+def send_2fa_setup_code(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_verified_user),
+):
+    # sends an OTP to the user's email so they can confirm they own it before enabling 2FA
+    from app.routers.auth import _send_otp_and_pend
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA is already enabled")
+    return _send_otp_and_pend(current_user, db, purpose="enable_2fa")
+
+
+@router.post("/2fa/enable", dependencies=[Depends(csrf_protect)])
+def enable_2fa(
+    payload: Enable2faIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_verified_user),
+):
+    # verifies the OTP code then flips totp_enabled on for this user
+    import hashlib
+    from app.models.otp_token import OtpToken
+    from datetime import datetime, timezone
+
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA is already enabled")
+
+    rec = db.query(OtpToken).filter_by(user_id=current_user.id, purpose="enable_2fa").first()
+    if not rec:
+        raise HTTPException(status_code=400, detail="No pending 2FA setup found — request a new code")
+
+    if rec.expires_at < datetime.now(timezone.utc):
+        db.delete(rec)
+        db.commit()
+        raise HTTPException(status_code=400, detail="Code has expired — request a new one")
+
+    submitted_hash = hashlib.sha256(payload.code.strip().encode()).hexdigest()
+    if submitted_hash != rec.code_hash:
+        raise HTTPException(status_code=400, detail="Incorrect code")
+
+    user = db.get(User, current_user.id)
+    user.totp_enabled = True
+    db.delete(rec)
+    db.commit()
+    return {"message": "Two-factor authentication enabled"}
+
+
+@router.post("/2fa/disable", dependencies=[Depends(csrf_protect)])
+def disable_2fa(
+    payload: Disable2faIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_verified_user),
+):
+    # requires the current password before disabling 2FA so attackers can't silently turn it off
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA is not enabled")
+    if not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+    user = db.get(User, current_user.id)
+    user.totp_enabled = False
+    db.commit()
+    return {"message": "Two-factor authentication disabled"}
 
 
 @router.post("/change-password", dependencies=[Depends(csrf_protect)])

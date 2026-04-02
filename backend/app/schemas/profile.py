@@ -21,6 +21,7 @@ class ProfileOut(BaseModel):
     payout_account_id: str | None = None
     avatar_url: str | None = None
     bio: str | None = None
+    totp_enabled: bool = False
 
     class Config:
         from_attributes = True

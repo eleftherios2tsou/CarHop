@@ -78,3 +78,16 @@ class ChangePasswordIn(BaseModel):
     @classmethod
     def password_strength(cls, v: str) -> str:
         return _check_password_strength(v)
+
+
+class VerifyOtpIn(BaseModel):
+    pending_token: str  # opaque token returned by the login endpoint when 2FA is required
+    code: str           # the 6-digit code the user received by email
+
+
+class Enable2faIn(BaseModel):
+    code: str  # the OTP code sent to the user's email to confirm they own it
+
+
+class Disable2faIn(BaseModel):
+    password: str  # current password — required to disable 2FA as a safety check

@@ -12,7 +12,7 @@ from app.deps import get_db, csrf_protect, get_current_user
 from app.models.user import User
 from app.models.email_verification import EmailVerificationToken
 from app.models.refresh_token import RefreshToken
-from app.schemas.auth import RegisterIn, LoginIn, ForgotPasswordIn, ResetPasswordIn, EmailResendIn
+from app.schemas.auth import RegisterIn, LoginIn, ForgotPasswordIn, ResetPasswordIn, EmailResendIn, VerifyOtpIn
 from app.auth import hash_password, verify_password
 from app.jwt import create_access_token
 from app.rate_limit import check_rate_limit
@@ -24,7 +24,7 @@ from app.security import (
     clear_auth_cookies,
     REFRESH_COOKIE,
 )
-from app.services.email import send_verification_email
+from app.services.email import send_verification_email, send_otp_email
 from app.email import notify_password_reset
 from app.models.password_reset_token import PasswordResetToken
 from app.config import settings
@@ -148,28 +148,67 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
     if not user.email_verified:
         raise HTTPException(status_code=403, detail="Email not verified")
 
-    # mint a short-lived access token (used in the Authorization cookie)
+    # if 2FA is enabled, send an OTP and return a pending token instead of full auth cookies
+    # the client must call /auth/verify-otp with the code to complete login
+    if user.totp_enabled:
+        return _send_otp_and_pend(user, db, purpose="login")
+
+    return _issue_auth_response(user, db)
+
+
+def _generate_otp_code() -> tuple[str, str]:
+    # returns (raw_code, sha256_hex_hash) — we store only the hash, send only the raw code
+    import hashlib, secrets
+    code = f"{secrets.randbelow(1_000_000):06d}"  # zero-padded 6-digit code
+    code_hash = hashlib.sha256(code.encode()).hexdigest()
+    return code, code_hash
+
+
+def _send_otp_and_pend(user: User, db: Session, purpose: str) -> Response:
+    # cleans up any existing OTP for this user+purpose, then generates and stores a fresh one
+    from app.models.otp_token import OtpToken
+    import json
+
+    db.query(OtpToken).filter_by(user_id=user.id, purpose=purpose).delete()
+
+    code, code_hash = _generate_otp_code()
+    pending_token = new_csrf_token()  # UUID4 hex — unique opaque token
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    db.add(OtpToken(
+        user_id=user.id,
+        code_hash=code_hash,
+        pending_token=pending_token,
+        purpose=purpose,
+        expires_at=expires_at,
+    ))
+    db.commit()
+
+    send_otp_email(user.email, code, settings)
+
+    # return a 200 with 2fa_required so the frontend knows to show the OTP screen
+    body = json.dumps({"2fa_required": True, "pending_token": pending_token})
+    return Response(content=body, media_type="application/json")
+
+
+def _issue_auth_response(user: User, db: Session) -> Response:
+    # mints access + refresh tokens and sets all auth cookies — shared by login and verify-otp
     access = create_access_token(sub=str(user.id))
 
-    # create a refresh token and store its hash in the DB (we never store the raw token)
     refresh_raw = new_refresh_token()
     refresh_hash = hash_refresh_token(refresh_raw)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=REFRESH_MAX_AGE)
 
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=refresh_hash,
-            expires_at=expires_at,
-            revoked=False,
-        )
-    )
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=refresh_hash,
+        expires_at=expires_at,
+        revoked=False,
+    ))
     db.commit()
 
-    # generate a CSRF token to attach to the response — the frontend must echo this back on mutations
     csrf = new_csrf_token()
 
-    # note: we return {"message":"Logged in"} not the user object — the frontend fetches /profile/me separately
     response = Response(content='{"message":"Logged in"}', media_type="application/json")
     set_auth_cookies(
         response,
@@ -180,6 +219,39 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
         refresh_max_age_seconds=REFRESH_MAX_AGE,
     )
     return response
+
+
+@router.post("/verify-otp")
+def verify_otp(payload: VerifyOtpIn, request: Request, db: Session = Depends(get_db)):
+    # rate limit OTP attempts to prevent brute-forcing the 6-digit code
+    check_rate_limit(scope="auth.verify_otp", identifier=_client_ip(request), limit=10, window_seconds=600)
+
+    from app.models.otp_token import OtpToken
+    import hashlib
+
+    rec = db.query(OtpToken).filter_by(pending_token=payload.pending_token, purpose="login").first()
+    if not rec:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    if rec.expires_at < datetime.now(timezone.utc):
+        db.delete(rec)
+        db.commit()
+        raise HTTPException(status_code=400, detail="Code has expired. Please log in again.")
+
+    # hash the submitted code and compare — never compare raw codes
+    submitted_hash = hashlib.sha256(payload.code.strip().encode()).hexdigest()
+    if submitted_hash != rec.code_hash:
+        raise HTTPException(status_code=400, detail="Incorrect code")
+
+    user = db.get(User, rec.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=400, detail="Invalid session")
+
+    # consume the OTP record so it can't be used again
+    db.delete(rec)
+    db.commit()
+
+    return _issue_auth_response(user, db)
 
 
 @router.post("/refresh")

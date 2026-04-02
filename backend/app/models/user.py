@@ -62,3 +62,11 @@ class User(Base):
     gdpr_erasure_requested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # whether this user has opted in to email two-factor authentication
+    totp_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.text("false"),
+    )

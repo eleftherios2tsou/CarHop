@@ -35,6 +35,11 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
   // Account type — chosen during registration
   const [accountType, setAccountType] = useState("RENTER");
 
+  // 2FA OTP state — shown after successful first-factor login when totp_enabled
+  const [pendingToken, setPendingToken] = useState(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [busyOtp, setBusyOtp] = useState(false);
+
   // If a reset token arrives via URL param, switch to reset mode
   useEffect(() => {
     if (resetToken) {
@@ -72,10 +77,15 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
         setRegistered(true);
         notify("Account created! Check your inbox for a verification email.", "ok");
       } else {
-        await apiFetch("/auth/login", {
+        const res = await apiFetch("/auth/login", {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
+        // if the server requires a second factor, show the OTP entry screen
+        if (res?.["2fa_required"]) {
+          setPendingToken(res.pending_token);
+          return; // don't complete login yet — wait for OTP
+        }
         notify("Logged in successfully.", "ok");
         await onLoginSuccess();
       }
@@ -83,6 +93,25 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
       notify(`Auth error: ${err.message}`, "bad");
     } finally {
       setBusyAuth(false);
+    }
+  }
+
+  async function handleOtp(e) {
+    e.preventDefault();
+    setBusyOtp(true);
+    try {
+      await apiFetch("/auth/verify-otp", {
+        method: "POST",
+        body: JSON.stringify({ pending_token: pendingToken, code: otpCode.trim() }),
+      });
+      setPendingToken(null);
+      setOtpCode("");
+      notify("Logged in successfully.", "ok");
+      await onLoginSuccess();
+    } catch (err) {
+      notify(`${err.message}`, "bad");
+    } finally {
+      setBusyOtp(false);
     }
   }
 
@@ -273,6 +302,35 @@ export default function AuthPage({ isAuthed, notify, onLoginSuccess, onNavigate,
               </Button>
             </form>
           )
+        ) : pendingToken ? (
+          /* ── 2FA OTP entry screen ── */
+          <form className="form" onSubmit={handleOtp} style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Two-factor authentication</div>
+            <div className="tiny muted" style={{ marginBottom: 12 }}>
+              A 6-digit code has been sent to your email address. Enter it below to complete sign-in.
+              The code expires in 10 minutes.
+            </div>
+            <Field
+              label="Verification code"
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+            />
+            <Button type="submit" loading={busyOtp} disabled={busyOtp || otpCode.length !== 6}>
+              Verify
+            </Button>
+            <button
+              type="button"
+              className="linkBtn tiny"
+              style={{ marginTop: 4 }}
+              onClick={() => { setPendingToken(null); setOtpCode(""); }}
+            >
+              ← Back to login
+            </button>
+          </form>
         ) : (
           /* ── Login / Register form ── */
           <form className="form" onSubmit={handleAuth}>

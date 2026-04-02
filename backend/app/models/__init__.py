@@ -1,5 +1,6 @@
 # backend/app/models/__init__.py
 from .user import User
+from .otp_token import OtpToken
 from .car import CarListing
 from .car_photo import CarPhoto
 from .booking import BookingRequest

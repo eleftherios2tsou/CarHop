@@ -161,6 +161,12 @@ export default function ProfilePage({
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [busyChangePassword, setBusyChangePassword] = useState(false);
 
+  // 2FA setup state
+  const [twoFaPending, setTwoFaPending] = useState(false); // true after send-code succeeds
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaDisablePassword, setTwoFaDisablePassword] = useState("");
+  const [busyTwoFa, setBusyTwoFa] = useState(false);
+
   // Avatar state
   const avatarInputRef                        = useRef(null);
   const [avatarFile, setAvatarFile]           = useState(null);
@@ -280,6 +286,56 @@ export default function ProfilePage({
       notify(`Export error: ${err.message}`, "bad");
     } finally {
       setBusyExport(false);
+    }
+  }
+
+  async function handleSend2faCode() {
+    setBusyTwoFa(true);
+    try {
+      await apiFetch("/profile/2fa/send-code", { method: "POST", onAuthError });
+      setTwoFaPending(true);
+      notify("Verification code sent to your email.", "ok");
+    } catch (err) {
+      notify(`2FA error: ${err.message}`, "bad");
+    } finally {
+      setBusyTwoFa(false);
+    }
+  }
+
+  async function handleEnable2fa() {
+    setBusyTwoFa(true);
+    try {
+      await apiFetch("/profile/2fa/enable", {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ code: twoFaCode.trim() }),
+      });
+      notify("Two-factor authentication enabled.", "ok");
+      setTwoFaPending(false);
+      setTwoFaCode("");
+      await onProfileUpdated();
+    } catch (err) {
+      notify(`2FA error: ${err.message}`, "bad");
+    } finally {
+      setBusyTwoFa(false);
+    }
+  }
+
+  async function handleDisable2fa() {
+    setBusyTwoFa(true);
+    try {
+      await apiFetch("/profile/2fa/disable", {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ password: twoFaDisablePassword }),
+      });
+      notify("Two-factor authentication disabled.", "ok");
+      setTwoFaDisablePassword("");
+      await onProfileUpdated();
+    } catch (err) {
+      notify(`2FA error: ${err.message}`, "bad");
+    } finally {
+      setBusyTwoFa(false);
     }
   }
 
@@ -695,6 +751,72 @@ export default function ProfilePage({
                 Update Password
               </Button>
             </form>
+
+            <div className="divider" style={{ margin: "16px 0" }} />
+
+            <div className="sectionTitle">Two-Factor Authentication</div>
+            {profile?.totp_enabled ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <Badge tone="ok">Enabled</Badge>
+                  <span className="tiny muted">Your account is protected with email 2FA.</span>
+                </div>
+                <Field
+                  label="Enter your password to disable 2FA"
+                  type="password"
+                  value={twoFaDisablePassword}
+                  onChange={(e) => setTwoFaDisablePassword(e.target.value)}
+                  placeholder="current password"
+                />
+                <Button
+                  variant="danger"
+                  onClick={handleDisable2fa}
+                  loading={busyTwoFa}
+                  disabled={busyTwoFa || !twoFaDisablePassword}
+                >
+                  Disable 2FA
+                </Button>
+              </>
+            ) : twoFaPending ? (
+              <>
+                <div className="tiny muted" style={{ marginBottom: 8 }}>
+                  A 6-digit code was sent to your email. Enter it below to activate 2FA.
+                </div>
+                <Field
+                  label="Verification code"
+                  value={twoFaCode}
+                  onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button
+                    onClick={handleEnable2fa}
+                    loading={busyTwoFa}
+                    disabled={busyTwoFa || twoFaCode.length !== 6}
+                  >
+                    Activate 2FA
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => { setTwoFaPending(false); setTwoFaCode(""); }}
+                    disabled={busyTwoFa}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="tiny muted" style={{ marginBottom: 8 }}>
+                  Add an extra layer of security. Each login will require a 6-digit code sent to your email.
+                </div>
+                <Button variant="secondary" onClick={handleSend2faCode} loading={busyTwoFa}>
+                  Enable 2FA
+                </Button>
+              </>
+            )}
 
             <div className="divider" style={{ margin: "16px 0" }} />
 
