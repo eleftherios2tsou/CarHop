@@ -22,7 +22,7 @@ async function setupUsers(browser) {
   const ownerContext = await browser.newContext();
   const renterContext = await browser.newContext();
 
-  const ownerUser = buildUser("owner");
+  const ownerUser = { ...buildUser("owner"), account_type: "OWNER" };
   const renterUser = buildUser("renter");
 
   const ownerProfile = await registerVerifyLogin(ownerContext, ownerUser);
@@ -298,44 +298,35 @@ test("owner reviews renter after completed trip", async ({ browser }) => {
   }
 });
 
-test("admin licence approval via admin panel", async ({ browser }) => {
-  // Register a user who has submitted a (pending) licence
+test("admin panel: admin can search and find a registered user", async ({ browser }) => {
   const adminCtx = await browser.newContext();
   const userCtx = await browser.newContext();
   try {
-    const adminUser = buildUser("licAdmin");
-    const pendingUser = buildUser("licPending");
+    const adminUser = buildUser("panelAdmin");
+    const targetUser = buildUser("panelTarget");
 
-    const adminProfile = await registerVerifyLogin(adminCtx, adminUser);
-    const pendingProfile = await registerVerifyLogin(userCtx, pendingUser);
+    await registerVerifyLogin(adminCtx, adminUser);
+    await registerVerifyLogin(userCtx, targetUser);
 
-    // Promote adminUser to ADMIN in DB
+    // Promote adminUser to ADMIN in DB then re-login so the role is picked up
     await makeUserAdmin(adminUser.email);
-
-    // Reload admin session so the role is current (re-login)
     await adminCtx.request.post("/api/auth/login", {
       data: { email: adminUser.email, password: adminUser.password },
     });
-
-    // Submit a pending licence for pendingUser via API
-    await submitAndVerifyLicense(userCtx, pendingProfile.id);
-    // submitAndVerifyLicense already marks as verified via DB — verify via admin UI as well
-    // Unmark it so admin UI has something to do
-    // (createVerifiedLicenseInDb already set is_verified=true, so just test the panel loads)
 
     const adminPage = await adminCtx.newPage();
     await adminPage.goto("/");
     await adminPage.getByRole("button", { name: "Navigation menu" }).click();
     await adminPage.getByRole("button", { name: "Admin", exact: true }).click();
 
-    // Enter the user ID and click Verify Licence
-    await adminPage.getByLabel(/user id to verify/i).fill(String(pendingProfile.id));
-    await adminPage.getByRole("button", { name: "Verify Licence" }).click();
+    // Navigate to Users tab and search for the target user
+    await adminPage.getByRole("button", { name: "Users", exact: true }).click();
+    await adminPage.getByPlaceholder(/search by name or email/i).fill(targetUser.email);
+    await adminPage.getByRole("button", { name: "Search" }).click();
 
-    // Expect success notification (ok tone)
-    await expect(
-      adminPage.locator(".toast, [class*=toast], [class*=notification]").first()
-    ).toBeVisible({ timeout: 8000 });
+    await expect(adminPage.locator(".rowCard").filter({ hasText: targetUser.email })).toBeVisible({
+      timeout: 8000,
+    });
   } finally {
     await adminCtx.close();
     await userCtx.close();
@@ -431,12 +422,12 @@ test("admin dispute resolution: admin resolves an open dispute", async ({ browse
     expect(disputeRes.ok()).toBeTruthy();
     const dispute = await disputeRes.json();
 
-    // Admin navigates to Admin panel and loads disputes
+    // Admin navigates to Admin panel → Disputes tab (auto-loads open disputes)
     const adminPage = await adminCtx.newPage();
     await adminPage.goto("/");
     await adminPage.getByRole("button", { name: "Navigation menu" }).click();
     await adminPage.getByRole("button", { name: "Admin", exact: true }).click();
-    await adminPage.getByRole("button", { name: /refresh open disputes/i }).click();
+    await adminPage.getByRole("button", { name: "Disputes", exact: true }).click();
 
     // Find and resolve the dispute
     const disputeRow = adminPage.locator(".rowCard").filter({
@@ -449,7 +440,7 @@ test("admin dispute resolution: admin resolves an open dispute", async ({ browse
     await adminPage.getByRole("button", { name: /apply decision/i }).click();
 
     // After resolution the dispute should no longer appear in the open list
-    await adminPage.getByRole("button", { name: /refresh open disputes/i }).click();
+    await adminPage.getByRole("button", { name: "Refresh" }).click();
     await expect(disputeRow).not.toBeVisible({ timeout: 8000 });
   } finally {
     await adminCtx.close();
