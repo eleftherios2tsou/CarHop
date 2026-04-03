@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import ProfilePage from "./ProfilePage";
@@ -24,47 +24,49 @@ const PROFILE = {
 
 const GATES = { canListCars: false, canBook: false };
 
+function renderPage(overrides = {}) {
+  return render(
+    <ProfilePage
+      profile={PROFILE}
+      isAuthed={true}
+      isAdmin={false}
+      gates={GATES}
+      notify={vi.fn()}
+      onAuthError={vi.fn()}
+      onProfileUpdated={vi.fn()}
+      {...overrides}
+    />
+  );
+}
+
 describe("ProfilePage — change password form", () => {
-  let notify;
-  let onProfileUpdated;
-
   beforeEach(() => {
-    notify = vi.fn();
-    onProfileUpdated = vi.fn();
+    vi.clearAllMocks();
   });
-
-  function renderPage() {
-    return render(
-      <ProfilePage
-        profile={PROFILE}
-        isAuthed={true}
-        isAdmin={false}
-        gates={GATES}
-        notify={notify}
-        onAuthError={vi.fn()}
-        onProfileUpdated={onProfileUpdated}
-      />
-    );
-  }
 
   it("renders the Change Password section", () => {
     renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByText("Change Password")).toBeInTheDocument();
     expect(screen.getByLabelText("Current password")).toBeInTheDocument();
     expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confirm new password")).toBeInTheDocument();
   });
 
   it("Update Password button is disabled when fields are empty", () => {
     renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByRole("button", { name: "Update Password" })).toBeDisabled();
   });
 
-  it("Update Password button is enabled when both fields have values", async () => {
+  it("Update Password button is enabled when all three fields have values", async () => {
     const user = userEvent.setup();
     renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Account" }));
 
     await user.type(screen.getByLabelText("Current password"), "oldpass");
     await user.type(screen.getByLabelText("New password"), "newpass");
+    await user.type(screen.getByLabelText("Confirm new password"), "newpass");
 
     expect(screen.getByRole("button", { name: "Update Password" })).toBeEnabled();
   });
@@ -72,51 +74,18 @@ describe("ProfilePage — change password form", () => {
 
 describe("ProfilePage — profile info display", () => {
   it("shows user email and name", () => {
-    render(
-      <ProfilePage
-        profile={PROFILE}
-        isAuthed={true}
-        isAdmin={false}
-        gates={GATES}
-        notify={vi.fn()}
-        onAuthError={vi.fn()}
-        onProfileUpdated={vi.fn()}
-      />
-    );
-
+    renderPage();
     expect(screen.getByText("alice@example.com")).toBeInTheDocument();
     expect(screen.getByText("Alice Smith")).toBeInTheDocument();
   });
 
   it("shows 'Not submitted' licence badge when no licence submitted", () => {
-    render(
-      <ProfilePage
-        profile={PROFILE}
-        isAuthed={true}
-        isAdmin={false}
-        gates={GATES}
-        notify={vi.fn()}
-        onAuthError={vi.fn()}
-        onProfileUpdated={vi.fn()}
-      />
-    );
-
+    renderPage();
     expect(screen.getByText("Not submitted")).toBeInTheDocument();
   });
 
   it("shows login prompt when not authenticated", () => {
-    render(
-      <ProfilePage
-        profile={null}
-        isAuthed={false}
-        isAdmin={false}
-        gates={GATES}
-        notify={vi.fn()}
-        onAuthError={vi.fn()}
-        onProfileUpdated={vi.fn()}
-      />
-    );
-
+    renderPage({ profile: null, isAuthed: false });
     expect(screen.getByText("Login to see your profile.")).toBeInTheDocument();
   });
 });
