@@ -162,9 +162,11 @@ export default function ProfilePage({
   const [busyChangePassword, setBusyChangePassword] = useState(false);
 
   // 2FA setup state
-  const [twoFaPending, setTwoFaPending] = useState(false); // true after send-code succeeds
+  const [twoFaPending, setTwoFaPending] = useState(false); // true after send-code succeeds (enable flow)
   const [twoFaCode, setTwoFaCode] = useState("");
   const [twoFaDisablePassword, setTwoFaDisablePassword] = useState("");
+  const [twoFaDisablePending, setTwoFaDisablePending] = useState(false); // true after send-disable-code succeeds
+  const [twoFaDisableCode, setTwoFaDisableCode] = useState("");
   const [busyTwoFa, setBusyTwoFa] = useState(false);
 
   // Avatar state
@@ -321,16 +323,35 @@ export default function ProfilePage({
     }
   }
 
+  async function handleSendDisable2faCode() {
+    setBusyTwoFa(true);
+    try {
+      await apiFetch("/profile/2fa/send-disable-code", {
+        method: "POST",
+        onAuthError,
+        body: JSON.stringify({ password: twoFaDisablePassword }),
+      });
+      setTwoFaDisablePending(true);
+      notify("Verification code sent to your email.", "ok");
+    } catch (err) {
+      notify(`2FA error: ${err.message}`, "bad");
+    } finally {
+      setBusyTwoFa(false);
+    }
+  }
+
   async function handleDisable2fa() {
     setBusyTwoFa(true);
     try {
       await apiFetch("/profile/2fa/disable", {
         method: "POST",
         onAuthError,
-        body: JSON.stringify({ password: twoFaDisablePassword }),
+        body: JSON.stringify({ code: twoFaDisableCode.trim() }),
       });
       notify("Two-factor authentication disabled.", "ok");
       setTwoFaDisablePassword("");
+      setTwoFaDisableCode("");
+      setTwoFaDisablePending(false);
       await onProfileUpdated();
     } catch (err) {
       notify(`2FA error: ${err.message}`, "bad");
@@ -761,21 +782,56 @@ export default function ProfilePage({
                   <Badge tone="ok">Enabled</Badge>
                   <span className="tiny muted">Your account is protected with email 2FA.</span>
                 </div>
-                <Field
-                  label="Enter your password to disable 2FA"
-                  type="password"
-                  value={twoFaDisablePassword}
-                  onChange={(e) => setTwoFaDisablePassword(e.target.value)}
-                  placeholder="current password"
-                />
-                <Button
-                  variant="danger"
-                  onClick={handleDisable2fa}
-                  loading={busyTwoFa}
-                  disabled={busyTwoFa || !twoFaDisablePassword}
-                >
-                  Disable 2FA
-                </Button>
+                {twoFaDisablePending ? (
+                  <>
+                    <div className="tiny muted" style={{ marginBottom: 8 }}>
+                      A 6-digit code was sent to your email. Enter it below to confirm disabling 2FA.
+                    </div>
+                    <Field
+                      label="Verification code"
+                      value={twoFaDisableCode}
+                      onChange={(e) => setTwoFaDisableCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="123456"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                    />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Button
+                        variant="danger"
+                        onClick={handleDisable2fa}
+                        loading={busyTwoFa}
+                        disabled={busyTwoFa || twoFaDisableCode.length !== 6}
+                      >
+                        Disable 2FA
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => { setTwoFaDisablePending(false); setTwoFaDisableCode(""); setTwoFaDisablePassword(""); }}
+                        disabled={busyTwoFa}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Field
+                      label="Enter your password to disable 2FA"
+                      type="password"
+                      value={twoFaDisablePassword}
+                      onChange={(e) => setTwoFaDisablePassword(e.target.value)}
+                      placeholder="current password"
+                    />
+                    <Button
+                      variant="danger"
+                      onClick={handleSendDisable2faCode}
+                      loading={busyTwoFa}
+                      disabled={busyTwoFa || !twoFaDisablePassword}
+                    >
+                      Send Disable Code
+                    </Button>
+                  </>
+                )}
               </>
             ) : twoFaPending ? (
               <>

@@ -89,5 +89,9 @@ class Enable2faIn(BaseModel):
     code: str  # the OTP code sent to the user's email to confirm they own it
 
 
+class SendDisable2faIn(BaseModel):
+    password: str  # password verified in step 1 before sending the OTP
+
+
 class Disable2faIn(BaseModel):
-    password: str  # current password — required to disable 2FA as a safety check
+    code: str  # OTP from email — password was already verified in send-disable-code step

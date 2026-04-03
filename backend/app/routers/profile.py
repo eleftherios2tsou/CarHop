@@ -20,7 +20,7 @@ from app.models.payment import Payment
 from app.models.car import CarListing
 from app.models.review import Review
 from app.auth import hash_password, verify_password
-from app.schemas.auth import ChangePasswordIn, Enable2faIn, Disable2faIn
+from app.schemas.auth import ChangePasswordIn, Enable2faIn, Disable2faIn, SendDisable2faIn
 from app.schemas.license import LicenseOut, AdminRejectIn
 from app.schemas.profile import ProfileOut, ProfileUpdateIn, PublicProfileOut, DeleteAccountIn
 from app.services.verification import run_verification_checks
@@ -574,19 +574,51 @@ def enable_2fa(
     return {"message": "Two-factor authentication enabled"}
 
 
+@router.post("/2fa/send-disable-code", dependencies=[Depends(csrf_protect)])
+def send_2fa_disable_code(
+    payload: SendDisable2faIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_verified_user),
+):
+    # step 1: verify password first, then send an OTP so the user must confirm via email too
+    from app.routers.auth import _send_otp_and_pend
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA is not enabled")
+    if not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+    return _send_otp_and_pend(current_user, db, purpose="disable_2fa")
+
+
 @router.post("/2fa/disable", dependencies=[Depends(csrf_protect)])
 def disable_2fa(
     payload: Disable2faIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_verified_user),
 ):
-    # requires the current password before disabling 2FA so attackers can't silently turn it off
+    # step 2: verify the OTP that was sent in send-disable-code, then flip 2FA off
+    import hashlib
+    from app.models.otp_token import OtpToken
+    from datetime import datetime, timezone
+
     if not current_user.totp_enabled:
         raise HTTPException(status_code=400, detail="2FA is not enabled")
-    if not verify_password(payload.password, current_user.password_hash):
-        raise HTTPException(status_code=400, detail="Incorrect password")
+
+    rec = db.query(OtpToken).filter_by(user_id=current_user.id, purpose="disable_2fa").first()
+    if not rec:
+        raise HTTPException(status_code=400, detail="No pending disable code — request a new one")
+
+    if rec.expires_at < datetime.now(timezone.utc):
+        db.delete(rec)
+        db.commit()
+        raise HTTPException(status_code=400, detail="Code has expired — request a new one")
+
+    submitted_hash = hashlib.sha256(payload.code.strip().encode()).hexdigest()
+    if submitted_hash != rec.code_hash:
+        raise HTTPException(status_code=400, detail="Incorrect code")
+
     user = db.get(User, current_user.id)
     user.totp_enabled = False
+    db.delete(rec)
     db.commit()
     return {"message": "Two-factor authentication disabled"}
 
